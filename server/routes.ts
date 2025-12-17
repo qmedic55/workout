@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { generateMentorResponse, calculateTargets } from "./openai";
 import { generateInsights } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
+import { searchUSDAFoods } from "./foodApi";
+import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from "./aiRecommendations";
 import { format, subDays, parseISO } from "date-fns";
 import {
   insertUserProfileSchema,
@@ -17,6 +19,25 @@ import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integra
 // Helper to get user ID from authenticated request
 function getUserId(req: Request): string {
   return (req.user as any)?.claims?.sub || "";
+}
+
+// Phase-specific workout guidance messages
+function getPhaseWorkoutMessage(phase: string): string {
+  switch (phase) {
+    case "recovery":
+      return "During your metabolic recovery phase, focus on mobility work and light resistance training (RIR 4+). " +
+        "Prioritize recovery-type workouts and low-impact cardio. Avoid HIIT and intense training to allow your metabolism to restore.";
+    case "recomp":
+      return "In the recomposition phase, balance strength training with moderate cardio. " +
+        "Focus on progressive overload (RIR 2-3) to build muscle while in a slight deficit. " +
+        "3-4 strength sessions per week is ideal.";
+    case "cutting":
+      return "During fat loss, prioritize maintaining your strength with heavy compound lifts (lower volume, higher intensity). " +
+        "Add metabolic finishers and HIIT for extra calorie burn. " +
+        "Keep strength training to preserve muscle mass.";
+    default:
+      return "Complete your assessment to get personalized workout recommendations based on your goals and metabolic state.";
+  }
 }
 
 // Validation schemas
@@ -494,14 +515,70 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   });
 
   // ==================== Workout Routes ====================
-  
-  app.get("/api/workouts", async (req: Request, res: Response) => {
+
+  // Get workouts, optionally filtered by user's current phase
+  app.get("/api/workouts", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const { phase, type } = req.query;
       const templates = await storage.getWorkoutTemplates();
-      res.json(templates);
+
+      // Get user's current phase if not specified
+      let filterPhase = phase as string | undefined;
+      if (!filterPhase) {
+        const profile = await storage.getProfile(getUserId(req));
+        filterPhase = profile?.currentPhase || undefined;
+      }
+
+      // Filter and sort by phase relevance
+      let filtered = templates;
+
+      if (filterPhase && filterPhase !== "assessment") {
+        filtered = templates.filter((workout) => {
+          const phases = workout.phases as string[] | null;
+          return phases ? phases.includes(filterPhase!) : true;
+        });
+
+        // Sort by phasePriority (higher = more recommended)
+        filtered.sort((a, b) => (b.phasePriority || 5) - (a.phasePriority || 5));
+      }
+
+      // Additionally filter by type if specified
+      if (type && typeof type === "string") {
+        filtered = filtered.filter((workout) => workout.type === type);
+      }
+
+      res.json(filtered);
     } catch (error) {
       console.error("Error fetching workouts:", error);
       res.status(500).json({ error: "Failed to fetch workouts" });
+    }
+  });
+
+  // Get recommended workouts for the user's current phase
+  app.get("/api/workouts/recommended", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const profile = await storage.getProfile(getUserId(req));
+      const currentPhase = profile?.currentPhase || "recomp";
+
+      const templates = await storage.getWorkoutTemplates();
+
+      // Filter to workouts for this phase, sorted by priority
+      const recommended = templates
+        .filter((workout) => {
+          const phases = workout.phases as string[] | null;
+          return phases ? phases.includes(currentPhase) : true;
+        })
+        .sort((a, b) => (b.phasePriority || 5) - (a.phasePriority || 5))
+        .slice(0, 5); // Top 5 recommendations
+
+      res.json({
+        phase: currentPhase,
+        workouts: recommended,
+        message: getPhaseWorkoutMessage(currentPhase),
+      });
+    } catch (error) {
+      console.error("Error fetching recommended workouts:", error);
+      res.status(500).json({ error: "Failed to fetch recommended workouts" });
     }
   });
 
@@ -537,15 +614,27 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
   app.get("/api/foods", async (req: Request, res: Response) => {
     try {
-      const { q } = req.query;
+      const { q, source } = req.query;
 
-      if (q && typeof q === "string") {
-        const foods = await storage.searchFoods(q);
-        res.json(foods);
-      } else {
+      if (!q || typeof q !== "string" || q.length < 2) {
+        // Return local foods if no query
         const foods = await storage.getAllFoods();
-        res.json(foods);
+        res.json(foods.map(f => ({ ...f, source: "local" })));
+        return;
       }
+
+      // Search USDA API first (primary source with 300K+ foods)
+      if (source !== "local") {
+        const usdaFoods = await searchUSDAFoods(q, 25);
+        if (usdaFoods.length > 0) {
+          res.json(usdaFoods);
+          return;
+        }
+      }
+
+      // Fallback to local database
+      const localFoods = await storage.searchFoods(q);
+      res.json(localFoods.map(f => ({ ...f, source: "local" })));
     } catch (error) {
       console.error("Error fetching foods:", error);
       res.status(500).json({ error: "Failed to fetch foods" });
@@ -561,6 +650,91 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error generating insights:", error);
       res.status(500).json({ error: "Failed to generate insights" });
+    }
+  });
+
+  // ==================== AI Recommendations Routes ====================
+
+  // Get comprehensive AI-powered recommendations based on profile and recent data
+  app.get("/api/ai-recommendations", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const assessment = await storage.getOnboardingAssessment(userId);
+
+      // Get recent logs (last 14 days)
+      const endDate = new Date().toISOString().split("T")[0];
+      const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
+
+      // Get available workouts
+      const workouts = await storage.getWorkoutTemplates();
+
+      // Generate AI analysis
+      const analysis = await analyzeProfileForRecommendations({
+        profile,
+        assessment,
+        recentLogs,
+        availableWorkouts: workouts,
+      });
+
+      res.json(analysis);
+    } catch (error) {
+      console.error("Error generating AI recommendations:", error);
+      res.status(500).json({ error: "Failed to generate AI recommendations" });
+    }
+  });
+
+  // Get quick workout recommendation for today
+  app.get("/api/ai-recommendations/workout", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      // Get recent logs (last 7 days)
+      const endDate = new Date().toISOString().split("T")[0];
+      const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
+
+      // Get available workouts for current phase
+      const workouts = await storage.getWorkoutTemplates();
+      const phaseWorkouts = workouts.filter((w) => {
+        const phases = w.phases as string[] | null;
+        return phases ? phases.includes(profile.currentPhase || "recomp") : true;
+      });
+
+      const recommendation = await getQuickWorkoutRecommendation(
+        profile,
+        recentLogs,
+        phaseWorkouts
+      );
+
+      if (recommendation) {
+        res.json(recommendation);
+      } else {
+        res.json({
+          workoutName: "Full Body Strength A",
+          reasoning: "Start with a foundational full-body workout to build consistency.",
+        });
+      }
+    } catch (error) {
+      console.error("Error getting workout recommendation:", error);
+      res.status(500).json({ error: "Failed to get workout recommendation" });
     }
   });
 

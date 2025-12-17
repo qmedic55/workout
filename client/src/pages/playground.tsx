@@ -50,7 +50,7 @@ export default function Playground() {
             <Button variant="outline">Outline</Button>
             <Button variant="destructive">Destructive</Button>
             <Button variant="ghost">Ghost</Button>
-            <Button variant="link">Link</Button>
+            <Button variant="ghost" className="underline">Link</Button>
           </CardContent>
         </Card>
 

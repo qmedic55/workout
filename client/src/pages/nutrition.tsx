@@ -65,7 +65,7 @@ function FoodEntryCard({ entry, onDelete }: { entry: FoodEntry; onDelete: (id: s
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate" data-testid={`text-food-${entry.id}`}>{entry.foodName}</p>
         <div className="flex flex-wrap gap-2 mt-1">
-          <Badge variant="secondary" size="sm">{entry.calories || 0} kcal</Badge>
+          <Badge variant="secondary" className="text-xs">{entry.calories || 0} kcal</Badge>
           <span className="text-xs text-muted-foreground">
             P: {entry.proteinGrams?.toFixed(0) || 0}g | C: {entry.carbsGrams?.toFixed(0) || 0}g | F: {entry.fatGrams?.toFixed(0) || 0}g
           </span>

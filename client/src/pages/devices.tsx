@@ -112,7 +112,7 @@ function DeviceCard({ device, connection, onConnect, onDisconnect, isPending }: 
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-1.5">
           {device.dataTypes.map((type) => (
-            <Badge key={type} variant="outline" size="sm">
+            <Badge key={type} variant="outline" className="text-xs">
               {type}
             </Badge>
           ))}

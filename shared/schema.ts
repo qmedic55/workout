@@ -186,16 +186,25 @@ export const chatMessages = pgTable("chat_messages", {
 // Workout templates
 export const workoutTemplates = pgTable("workout_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  
+
   name: text("name").notNull(),
   description: text("description"),
   type: text("type").notNull(), // strength, cardio, flexibility, recovery
   difficulty: text("difficulty").notNull(), // beginner, intermediate, advanced
   durationMinutes: integer("duration_minutes"),
   targetAgeGroup: text("target_age_group").default("40+"),
-  
+
+  // Phase recommendations: which phases this workout is appropriate for
+  // recovery = focus on mobility, low intensity
+  // recomp = balanced strength + moderate cardio
+  // cutting = maintain strength, higher cardio
+  phases: jsonb("phases").$type<string[]>().default(["recovery", "recomp", "cutting"]),
+
+  // Priority within phase (higher = recommended more often)
+  phasePriority: integer("phase_priority").default(5),
+
   exercises: jsonb("exercises"), // Array of exercises with sets, reps, RIR
-  
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -17,6 +17,8 @@ const defaultWorkouts: WorkoutTemplate[] = [
     difficulty: "beginner",
     durationMinutes: 45,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 8,
     exercises: [
       { name: "Goblet Squat", sets: 3, reps: "10-12", rir: 3, notes: "Focus on depth and control" },
       { name: "Dumbbell Romanian Deadlift", sets: 3, reps: "10-12", rir: 3, notes: "Hinge at hips, slight knee bend" },
@@ -35,6 +37,8 @@ const defaultWorkouts: WorkoutTemplate[] = [
     difficulty: "beginner",
     durationMinutes: 45,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 8,
     exercises: [
       { name: "Leg Press", sets: 3, reps: "10-12", rir: 3, notes: "Controlled descent" },
       { name: "Walking Lunges", sets: 3, reps: "10 each", rir: 3, notes: "Step with control" },
@@ -53,6 +57,8 @@ const defaultWorkouts: WorkoutTemplate[] = [
     difficulty: "intermediate",
     durationMinutes: 50,
     targetAgeGroup: "40+",
+    phases: ["recomp", "cutting"],
+    phasePriority: 9,
     exercises: [
       { name: "Barbell Bench Press", sets: 4, reps: "8-10", rir: 2, notes: "Arch back slightly, retract shoulders" },
       { name: "Barbell Row", sets: 4, reps: "8-10", rir: 2, notes: "Torso at 45 degrees" },
@@ -71,6 +77,8 @@ const defaultWorkouts: WorkoutTemplate[] = [
     difficulty: "intermediate",
     durationMinutes: 50,
     targetAgeGroup: "40+",
+    phases: ["recomp", "cutting"],
+    phasePriority: 9,
     exercises: [
       { name: "Barbell Squat", sets: 4, reps: "8-10", rir: 2, notes: "Depth to parallel or below" },
       { name: "Romanian Deadlift", sets: 4, reps: "8-10", rir: 2, notes: "Feel hamstring stretch" },
@@ -89,6 +97,8 @@ const defaultWorkouts: WorkoutTemplate[] = [
     difficulty: "beginner",
     durationMinutes: 30,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 10,
     exercises: [
       { name: "Cat-Cow Stretch", sets: 1, reps: "2 min", rir: null, notes: "Sync with breath" },
       { name: "World's Greatest Stretch", sets: 1, reps: "5 each", rir: null, notes: "Hold each position" },
@@ -107,6 +117,8 @@ const defaultWorkouts: WorkoutTemplate[] = [
     difficulty: "beginner",
     durationMinutes: 30,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 7,
     exercises: [
       { name: "Walking or Light Cycling", sets: 1, reps: "30 min", rir: null, notes: "Heart rate zone 2 (60-70% max HR)" },
     ],

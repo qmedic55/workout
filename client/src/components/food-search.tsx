@@ -9,6 +9,7 @@ import { Search, Plus, Loader2 } from "lucide-react";
 interface FoodDatabaseItem {
   id: string;
   name: string;
+  brandName?: string;
   servingSize: string | null;
   calories: number | null;
   proteinGrams: number | null;
@@ -16,6 +17,7 @@ interface FoodDatabaseItem {
   fatGrams: number | null;
   fiberGrams: number | null;
   category: string | null;
+  source?: "usda" | "local";
 }
 
 interface FoodSearchProps {
@@ -97,11 +99,16 @@ export function FoodSearch({ onSelect }: FoodSearchProps) {
               >
                 <CardContent className="p-3 flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-sm truncate">{food.name}</p>
                       {food.category && (
                         <Badge variant="secondary" className={`text-xs ${getCategoryColor(food.category)}`}>
                           {food.category}
+                        </Badge>
+                      )}
+                      {food.source === "usda" && (
+                        <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300">
+                          USDA
                         </Badge>
                       )}
                     </div>

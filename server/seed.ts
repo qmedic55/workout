@@ -2,7 +2,9 @@ import { db } from "./db";
 import { workoutTemplates, educationalContent, foodDatabase } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
-// Workout templates for 40+ adults
+// Workout templates for 40+ adults with phase-specific recommendations
+// phases: which phases this workout is recommended for
+// phasePriority: 1-10, higher = more recommended for that phase
 const workoutData = [
   {
     name: "Full Body Strength A",
@@ -11,6 +13,8 @@ const workoutData = [
     difficulty: "beginner",
     durationMinutes: 45,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 8, // Great for all phases
     exercises: [
       { name: "Goblet Squat", sets: 3, reps: "10-12", rir: 3, notes: "Focus on depth and control" },
       { name: "Dumbbell Romanian Deadlift", sets: 3, reps: "10-12", rir: 3, notes: "Hinge at hips, slight knee bend" },
@@ -27,6 +31,8 @@ const workoutData = [
     difficulty: "beginner",
     durationMinutes: 45,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 8, // Great for all phases
     exercises: [
       { name: "Leg Press", sets: 3, reps: "10-12", rir: 3, notes: "Controlled descent" },
       { name: "Walking Lunges", sets: 3, reps: "10 each", rir: 3, notes: "Step with control" },
@@ -43,6 +49,8 @@ const workoutData = [
     difficulty: "intermediate",
     durationMinutes: 50,
     targetAgeGroup: "40+",
+    phases: ["recomp", "cutting"],
+    phasePriority: 9, // Best for muscle building/maintenance
     exercises: [
       { name: "Barbell Bench Press", sets: 4, reps: "8-10", rir: 2, notes: "Arch back slightly, retract shoulders" },
       { name: "Barbell Row", sets: 4, reps: "8-10", rir: 2, notes: "Torso at 45 degrees" },
@@ -59,6 +67,8 @@ const workoutData = [
     difficulty: "intermediate",
     durationMinutes: 50,
     targetAgeGroup: "40+",
+    phases: ["recomp", "cutting"],
+    phasePriority: 9, // Best for muscle building/maintenance
     exercises: [
       { name: "Back Squat", sets: 4, reps: "8-10", rir: 2, notes: "Brace core, sit back" },
       { name: "Romanian Deadlift", sets: 4, reps: "8-10", rir: 2, notes: "Feel hamstring stretch" },
@@ -75,6 +85,8 @@ const workoutData = [
     difficulty: "beginner",
     durationMinutes: 30,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 7, // Good for all phases, especially recovery
     exercises: [
       { name: "Stationary Bike", sets: 1, reps: "10 min", rir: null, notes: "Moderate pace, zone 2" },
       { name: "Elliptical", sets: 1, reps: "10 min", rir: null, notes: "Vary resistance" },
@@ -88,6 +100,8 @@ const workoutData = [
     difficulty: "intermediate",
     durationMinutes: 25,
     targetAgeGroup: "40+",
+    phases: ["recomp", "cutting"],
+    phasePriority: 8, // Great for fat loss phases, avoid during recovery
     exercises: [
       { name: "Jumping Jacks", sets: 4, reps: "30 sec on / 30 sec off", rir: null, notes: "Land softly" },
       { name: "Bodyweight Squats", sets: 4, reps: "30 sec on / 30 sec off", rir: null, notes: "Full depth" },
@@ -98,11 +112,13 @@ const workoutData = [
   },
   {
     name: "Mobility & Recovery",
-    description: "Essential stretching and mobility work for joint health and recovery.",
+    description: "Essential stretching and mobility work for joint health and recovery. Especially important during metabolic recovery phases.",
     type: "recovery",
     difficulty: "beginner",
     durationMinutes: 20,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 10, // Top priority during recovery phase
     exercises: [
       { name: "Cat-Cow Stretch", sets: 2, reps: "10 breaths", rir: null, notes: "Slow, controlled" },
       { name: "Hip Flexor Stretch", sets: 2, reps: "60 sec each", rir: null, notes: "Don't arch back" },
@@ -114,11 +130,13 @@ const workoutData = [
   },
   {
     name: "Yoga Flow",
-    description: "Gentle yoga sequence focusing on flexibility, balance, and stress reduction.",
+    description: "Gentle yoga sequence focusing on flexibility, balance, and stress reduction. Perfect for recovery days.",
     type: "recovery",
     difficulty: "beginner",
     durationMinutes: 30,
     targetAgeGroup: "40+",
+    phases: ["recovery", "recomp", "cutting"],
+    phasePriority: 9, // High priority during recovery phase
     exercises: [
       { name: "Sun Salutation A", sets: 3, reps: "complete flow", rir: null, notes: "Move with breath" },
       { name: "Warrior I & II", sets: 2, reps: "5 breaths each side", rir: null, notes: "Ground through feet" },
@@ -126,6 +144,76 @@ const workoutData = [
       { name: "Pigeon Pose", sets: 1, reps: "1 min each side", rir: null, notes: "Props if needed" },
       { name: "Seated Forward Fold", sets: 1, reps: "1 min", rir: null, notes: "Bend knees if tight" },
       { name: "Corpse Pose", sets: 1, reps: "5 min", rir: null, notes: "Complete relaxation" },
+    ],
+  },
+  // New phase-specific workouts
+  {
+    name: "Metabolic Recovery Circuit",
+    description: "Light resistance circuit designed for the recovery phase. Maintains muscle while minimizing stress on the body.",
+    type: "strength",
+    difficulty: "beginner",
+    durationMinutes: 30,
+    targetAgeGroup: "40+",
+    phases: ["recovery"],
+    phasePriority: 10, // Top priority for recovery phase
+    exercises: [
+      { name: "Bodyweight Squat", sets: 2, reps: "12-15", rir: 4, notes: "Focus on form, no added weight" },
+      { name: "Wall Push-ups", sets: 2, reps: "12-15", rir: 4, notes: "Progress to incline when ready" },
+      { name: "Band Pull-Aparts", sets: 2, reps: "15", rir: 4, notes: "Light resistance" },
+      { name: "Glute Bridges", sets: 2, reps: "12-15", rir: 4, notes: "Squeeze at top" },
+      { name: "Bird Dogs", sets: 2, reps: "10 each", rir: null, notes: "Core stability focus" },
+    ],
+  },
+  {
+    name: "Recomp Power Build",
+    description: "Progressive overload focused workout for body recomposition. Build muscle while managing recovery.",
+    type: "strength",
+    difficulty: "intermediate",
+    durationMinutes: 55,
+    targetAgeGroup: "40+",
+    phases: ["recomp"],
+    phasePriority: 10, // Top priority for recomp phase
+    exercises: [
+      { name: "Trap Bar Deadlift", sets: 4, reps: "6-8", rir: 2, notes: "Great for 40+ backs" },
+      { name: "Dumbbell Bench Press", sets: 4, reps: "8-10", rir: 2, notes: "Full range of motion" },
+      { name: "Leg Press", sets: 3, reps: "10-12", rir: 2, notes: "Feet high for glutes" },
+      { name: "Seated Cable Row", sets: 3, reps: "10-12", rir: 2, notes: "Squeeze at contraction" },
+      { name: "Lateral Raises", sets: 3, reps: "12-15", rir: 2, notes: "Control the descent" },
+      { name: "EZ Bar Curl", sets: 2, reps: "12-15", rir: 2, notes: "Superset with next" },
+      { name: "Overhead Tricep Extension", sets: 2, reps: "12-15", rir: 2, notes: "Superset pair" },
+    ],
+  },
+  {
+    name: "Cutting Strength Maintenance",
+    description: "Heavy compound movements to maintain muscle during fat loss. Lower volume, higher intensity.",
+    type: "strength",
+    difficulty: "intermediate",
+    durationMinutes: 40,
+    targetAgeGroup: "40+",
+    phases: ["cutting"],
+    phasePriority: 10, // Top priority for cutting phase
+    exercises: [
+      { name: "Barbell Squat", sets: 3, reps: "5-6", rir: 2, notes: "Heavy but controlled" },
+      { name: "Weighted Pull-ups or Lat Pulldown", sets: 3, reps: "6-8", rir: 2, notes: "Full stretch at bottom" },
+      { name: "Dumbbell Romanian Deadlift", sets: 3, reps: "8", rir: 2, notes: "Feel hamstring stretch" },
+      { name: "Incline Dumbbell Press", sets: 3, reps: "8", rir: 2, notes: "Retract shoulders" },
+      { name: "Face Pulls", sets: 2, reps: "15", rir: 2, notes: "Posture health" },
+    ],
+  },
+  {
+    name: "Fat Loss Finisher",
+    description: "Metabolic conditioning circuit for the cutting phase. Burns calories while preserving muscle.",
+    type: "cardio",
+    difficulty: "intermediate",
+    durationMinutes: 20,
+    targetAgeGroup: "40+",
+    phases: ["cutting"],
+    phasePriority: 9, // High priority for cutting phase
+    exercises: [
+      { name: "Kettlebell Swings", sets: 4, reps: "15", rir: null, notes: "Hip hinge power" },
+      { name: "Battle Ropes", sets: 4, reps: "30 sec", rir: null, notes: "Alternate patterns" },
+      { name: "Box Step-Ups", sets: 4, reps: "12 each", rir: null, notes: "Low impact cardio" },
+      { name: "Medicine Ball Slams", sets: 4, reps: "10", rir: null, notes: "Full body explosive" },
     ],
   },
 ];
