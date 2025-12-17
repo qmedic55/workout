@@ -1,10 +1,11 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Scale,
   Flame,
@@ -228,6 +229,8 @@ function DashboardSkeleton() {
 }
 
 export default function Dashboard() {
+  const [, navigate] = useLocation();
+
   const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
   });
@@ -235,6 +238,13 @@ export default function Dashboard() {
   const { data: todayLog, isLoading: logLoading } = useQuery<DailyLog>({
     queryKey: ["/api/daily-logs/today"],
   });
+
+  // Auto-redirect unonboarded users to onboarding
+  useEffect(() => {
+    if (!profileLoading && profile && !profile.onboardingCompleted) {
+      navigate("/onboarding");
+    }
+  }, [profile, profileLoading, navigate]);
 
   const isLoading = profileLoading || logLoading;
 

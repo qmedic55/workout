@@ -7,6 +7,7 @@ import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { authStorage } from "./storage";
+import { storage } from "../../storage";
 
 const getOidcConfig = memoize(
   async () => {
@@ -51,13 +52,32 @@ function updateUserSession(
 }
 
 async function upsertUser(claims: any) {
+  const userId = claims["sub"];
+
+  // Upsert user in users table
   await authStorage.upsertUser({
-    id: claims["sub"],
+    id: userId,
     email: claims["email"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
   });
+
+  // Check if profile exists, create basic one if not
+  try {
+    const existingProfile = await storage.getProfile(userId);
+    if (!existingProfile) {
+      await storage.createProfile({
+        userId: userId,
+        firstName: claims["first_name"],
+        lastName: claims["last_name"],
+        onboardingCompleted: false,
+      });
+    }
+  } catch (error) {
+    console.error("Error creating user profile on login:", error);
+    // Don't throw - we don't want to block login if profile creation fails
+  }
 }
 
 export async function setupAuth(app: Express) {

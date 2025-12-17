@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Utensils, Target, Calculator } from "lucide-react";
+import { Plus, Trash2, Utensils, Target, Calculator, Search } from "lucide-react";
+import { FoodSearch } from "@/components/food-search";
 import type { FoodEntry, UserProfile, DailyLog } from "@shared/schema";
 
 const foodEntrySchema = z.object({
@@ -166,6 +167,23 @@ export default function Nutrition() {
     });
   };
 
+  // Handler for food search selection - populates the form
+  const handleFoodSelect = (food: {
+    name: string;
+    servingSize: string | null;
+    calories: number | null;
+    proteinGrams: number | null;
+    carbsGrams: number | null;
+    fatGrams: number | null;
+  }) => {
+    form.setValue("foodName", food.name);
+    if (food.calories) form.setValue("calories", food.calories);
+    if (food.proteinGrams) form.setValue("proteinGrams", food.proteinGrams);
+    if (food.carbsGrams) form.setValue("carbsGrams", food.carbsGrams);
+    if (food.fatGrams) form.setValue("fatGrams", food.fatGrams);
+    if (food.servingSize) form.setValue("servingSize", food.servingSize);
+  };
+
   const totalCalories = foodEntries.reduce((sum, e) => sum + (e.calories || 0), 0);
   const totalProtein = foodEntries.reduce((sum, e) => sum + (e.proteinGrams || 0), 0);
   const totalCarbs = foodEntries.reduce((sum, e) => sum + (e.carbsGrams || 0), 0);
@@ -281,6 +299,24 @@ export default function Nutrition() {
                     </FormItem>
                   )}
                 />
+
+                {/* Food Database Search */}
+                <div className="space-y-2">
+                  <FormLabel className="flex items-center gap-2">
+                    <Search className="h-4 w-4" />
+                    Search Food Database
+                  </FormLabel>
+                  <FoodSearch onSelect={handleFoodSelect} />
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">or enter manually</span>
+                  </div>
+                </div>
 
                 <FormField
                   control={form.control}

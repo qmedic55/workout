@@ -119,8 +119,8 @@ export async function registerRoutes(
   registerAuthRoutes(app);
 
   // ==================== Profile Routes ====================
-  
-  app.get("/api/profile", async (req: Request, res: Response) => {
+
+  app.get("/api/profile", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const profile = await storage.getProfile(getUserId(req));
       if (!profile) {
@@ -134,7 +134,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/profile", async (req: Request, res: Response) => {
+  app.patch("/api/profile", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const existingProfile = await storage.getProfile(getUserId(req));
       
@@ -152,8 +152,8 @@ export async function registerRoutes(
   });
 
   // ==================== Onboarding Routes ====================
-  
-  app.post("/api/onboarding", async (req: Request, res: Response) => {
+
+  app.post("/api/onboarding", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate input
       const parseResult = onboardingSchema.safeParse(req.body);
@@ -270,8 +270,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   });
 
   // ==================== Daily Log Routes ====================
-  
-  app.get("/api/daily-logs/today", async (req: Request, res: Response) => {
+
+  app.get("/api/daily-logs/today", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const today = format(new Date(), "yyyy-MM-dd");
       const log = await storage.getDailyLog(getUserId(req), today);
@@ -282,7 +282,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.get("/api/daily-logs/:date", async (req: Request, res: Response) => {
+  app.get("/api/daily-logs/:date", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { date } = req.params;
       const log = await storage.getDailyLog(getUserId(req), date);
@@ -293,7 +293,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.get("/api/daily-logs/range/:timeRange", async (req: Request, res: Response) => {
+  app.get("/api/daily-logs/range/:timeRange", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { timeRange } = req.params;
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
@@ -308,7 +308,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.post("/api/daily-logs", async (req: Request, res: Response) => {
+  app.post("/api/daily-logs", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate input
       const parseResult = dailyLogInputSchema.safeParse(req.body);
@@ -331,8 +331,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   });
 
   // ==================== Food Entry Routes ====================
-  
-  app.get("/api/food-entries/:date", async (req: Request, res: Response) => {
+
+  app.get("/api/food-entries/:date", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { date } = req.params;
       const entries = await storage.getFoodEntries(getUserId(req), date);
@@ -343,7 +343,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.post("/api/food-entries", async (req: Request, res: Response) => {
+  app.post("/api/food-entries", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate input
       const parseResult = foodEntryInputSchema.safeParse(req.body);
@@ -365,7 +365,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.delete("/api/food-entries/:id", async (req: Request, res: Response) => {
+  app.delete("/api/food-entries/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const success = await storage.deleteFoodEntry(id, getUserId(req));
@@ -382,8 +382,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   });
 
   // ==================== Chat Routes ====================
-  
-  app.get("/api/chat/messages", async (req: Request, res: Response) => {
+
+  app.get("/api/chat/messages", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const messages = await storage.getChatMessages(getUserId(req));
       res.json(messages);
@@ -393,7 +393,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.post("/api/chat/send", async (req: Request, res: Response) => {
+  app.post("/api/chat/send", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate input
       const parseResult = chatMessageSchema.safeParse(req.body);
@@ -441,8 +441,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   });
 
   // ==================== Wearable Routes ====================
-  
-  app.get("/api/wearables", async (req: Request, res: Response) => {
+
+  app.get("/api/wearables", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const connections = await storage.getWearableConnections(getUserId(req));
       res.json(connections);
@@ -452,7 +452,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.post("/api/wearables/connect", async (req: Request, res: Response) => {
+  app.post("/api/wearables/connect", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { provider } = req.body;
       
@@ -475,7 +475,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  app.post("/api/wearables/disconnect", async (req: Request, res: Response) => {
+  app.post("/api/wearables/disconnect", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { provider } = req.body;
       const success = await storage.deleteWearableConnection(getUserId(req), provider);

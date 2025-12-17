@@ -1,8 +1,16 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -168,11 +176,21 @@ function DevicesSkeleton() {
 
 export default function Devices() {
   const { toast } = useToast();
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState<string>("");
 
   const { data: connections = [], isLoading } = useQuery<WearableConnection[]>({
     queryKey: ["/api/wearables"],
   });
 
+  // Show "Coming Soon" dialog instead of actual connection
+  const handleConnect = (provider: string) => {
+    const device = devices.find(d => d.provider === provider);
+    setSelectedDevice(device?.name || provider);
+    setComingSoonOpen(true);
+  };
+
+  // Keep the mutation for potential future use, but it's not called by handleConnect
   const connectMutation = useMutation({
     mutationFn: async (provider: string) => {
       const response = await apiRequest("POST", "/api/wearables/connect", { provider });
@@ -254,13 +272,37 @@ export default function Devices() {
               key={device.id}
               device={device}
               connection={getConnection(device.provider)}
-              onConnect={() => connectMutation.mutate(device.provider)}
+              onConnect={() => handleConnect(device.provider)}
               onDisconnect={() => disconnectMutation.mutate(device.provider)}
-              isPending={connectMutation.isPending || disconnectMutation.isPending}
+              isPending={disconnectMutation.isPending}
             />
           ))}
         </div>
       )}
+
+      {/* Coming Soon Dialog */}
+      <Dialog open={comingSoonOpen} onOpenChange={setComingSoonOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Coming Soon!</DialogTitle>
+            <DialogDescription className="pt-2">
+              {selectedDevice} integration is currently under development. We're working hard to bring you
+              seamless wearable connectivity so you can automatically sync your health data.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            In the meantime, you can manually enter your data through the Daily Log feature to track your progress.
+          </p>
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" onClick={() => setComingSoonOpen(false)}>
+              Got it
+            </Button>
+            <Button asChild>
+              <a href="/daily-log">Go to Daily Log</a>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
