@@ -1,7 +1,6 @@
 import { eq, and, desc, gte, lte, ilike } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users,
   userProfiles,
   onboardingAssessments,
   dailyLogs,
@@ -11,8 +10,6 @@ import {
   workoutTemplates,
   educationalContent,
   foodDatabase,
-  type User,
-  type InsertUser,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -31,12 +28,7 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
-  // Users
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-
-  // User Profiles
+  // User Profiles (User operations handled by auth module)
   getProfile(userId: string): Promise<UserProfile | undefined>;
   createProfile(profile: InsertUserProfile): Promise<UserProfile>;
   updateProfile(userId: string, updates: Partial<InsertUserProfile>): Promise<UserProfile | undefined>;
@@ -78,23 +70,7 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // Users
-  async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id));
-    return result[0];
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username));
-    return result[0];
-  }
-
-  async createUser(user: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(user).returning();
-    return result[0];
-  }
-
-  // User Profiles
+  // User Profiles (User operations handled by auth module)
   async getProfile(userId: string): Promise<UserProfile | undefined> {
     const result = await db.select().from(userProfiles).where(eq(userProfiles.userId, userId));
     return result[0];

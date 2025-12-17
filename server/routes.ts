@@ -10,10 +10,12 @@ import {
   insertChatMessageSchema,
 } from "@shared/schema";
 import { z } from "zod";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
-// For demo purposes, we'll use a simple session-like system
-// In production, you'd use proper authentication
-let DEMO_USER_ID = "";
+// Helper to get user ID from authenticated request
+function getUserId(req: Request): string {
+  return (req.user as any)?.claims?.sub || "";
+}
 
 // Validation schemas
 const onboardingSchema = z.object({
@@ -107,44 +109,20 @@ const foodEntryInputSchema = z.object({
   fiberGrams: z.number().optional(),
 });
 
-async function ensureDemoUser() {
-  // First check if user exists by username
-  let user = await storage.getUserByUsername("demo");
-  
-  if (!user) {
-    try {
-      user = await storage.createUser({
-        username: "demo",
-        password: "demo123",
-        email: "demo@vitalpath.app",
-      });
-    } catch (error) {
-      // If user creation fails due to duplicate, try to fetch by username again
-      user = await storage.getUserByUsername("demo");
-    }
-  }
-  
-  // Store the user ID for subsequent operations
-  if (user) {
-    DEMO_USER_ID = user.id;
-  }
-  
-  return user;
-}
-
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
-  // Initialize demo user
-  await ensureDemoUser();
+  // Set up Replit Auth (must be before other routes)
+  await setupAuth(app);
+  registerAuthRoutes(app);
 
   // ==================== Profile Routes ====================
   
   app.get("/api/profile", async (req: Request, res: Response) => {
     try {
-      const profile = await storage.getProfile(DEMO_USER_ID);
+      const profile = await storage.getProfile(getUserId(req));
       if (!profile) {
         res.json(null);
         return;
@@ -158,14 +136,14 @@ export async function registerRoutes(
 
   app.patch("/api/profile", async (req: Request, res: Response) => {
     try {
-      const existingProfile = await storage.getProfile(DEMO_USER_ID);
+      const existingProfile = await storage.getProfile(getUserId(req));
       
       if (!existingProfile) {
         res.status(404).json({ error: "Profile not found" });
         return;
       }
 
-      const updatedProfile = await storage.updateProfile(DEMO_USER_ID, req.body);
+      const updatedProfile = await storage.updateProfile(getUserId(req), req.body);
       res.json(updatedProfile);
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -199,10 +177,10 @@ export async function registerRoutes(
       });
 
       // Create or update user profile
-      let profile = await storage.getProfile(DEMO_USER_ID);
+      let profile = await storage.getProfile(getUserId(req));
       
       const profileData = {
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
         firstName: data.firstName,
         lastName: data.lastName,
         age: data.age,
@@ -226,14 +204,14 @@ export async function registerRoutes(
       };
 
       if (profile) {
-        profile = await storage.updateProfile(DEMO_USER_ID, profileData);
+        profile = await storage.updateProfile(getUserId(req), profileData);
       } else {
         profile = await storage.createProfile(profileData);
       }
 
       // Store assessment data
       await storage.createOnboardingAssessment({
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
         hasBeenDietingRecently: data.hasBeenDietingRecently,
         dietingDurationMonths: data.dietingDurationMonths,
         previousLowestCalories: data.previousLowestCalories,
@@ -278,7 +256,7 @@ Here are your daily targets:
 Feel free to ask me any questions about your plan, nutrition, training, or anything else related to your health journey. I'm here to help! 💪`;
 
       await storage.createChatMessage({
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
         role: "assistant",
         content: welcomeMessage,
         contextType: "onboarding",
@@ -296,7 +274,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.get("/api/daily-logs/today", async (req: Request, res: Response) => {
     try {
       const today = format(new Date(), "yyyy-MM-dd");
-      const log = await storage.getDailyLog(DEMO_USER_ID, today);
+      const log = await storage.getDailyLog(getUserId(req), today);
       res.json(log || null);
     } catch (error) {
       console.error("Error fetching today's log:", error);
@@ -307,7 +285,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.get("/api/daily-logs/:date", async (req: Request, res: Response) => {
     try {
       const { date } = req.params;
-      const log = await storage.getDailyLog(DEMO_USER_ID, date);
+      const log = await storage.getDailyLog(getUserId(req), date);
       res.json(log || null);
     } catch (error) {
       console.error("Error fetching log:", error);
@@ -322,7 +300,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       const startDate = format(subDays(new Date(), days), "yyyy-MM-dd");
       const endDate = format(new Date(), "yyyy-MM-dd");
       
-      const logs = await storage.getDailyLogs(DEMO_USER_ID, startDate, endDate);
+      const logs = await storage.getDailyLogs(getUserId(req), startDate, endDate);
       res.json(logs);
     } catch (error) {
       console.error("Error fetching logs:", error);
@@ -341,7 +319,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       
       const data = {
         ...parseResult.data,
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
       };
       
       const log = await storage.createOrUpdateDailyLog(data);
@@ -357,7 +335,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.get("/api/food-entries/:date", async (req: Request, res: Response) => {
     try {
       const { date } = req.params;
-      const entries = await storage.getFoodEntries(DEMO_USER_ID, date);
+      const entries = await storage.getFoodEntries(getUserId(req), date);
       res.json(entries);
     } catch (error) {
       console.error("Error fetching food entries:", error);
@@ -376,7 +354,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       
       const data = {
         ...parseResult.data,
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
       };
       
       const entry = await storage.createFoodEntry(data);
@@ -390,7 +368,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.delete("/api/food-entries/:id", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const success = await storage.deleteFoodEntry(id, DEMO_USER_ID);
+      const success = await storage.deleteFoodEntry(id, getUserId(req));
       
       if (success) {
         res.json({ success: true });
@@ -407,7 +385,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   
   app.get("/api/chat/messages", async (req: Request, res: Response) => {
     try {
-      const messages = await storage.getChatMessages(DEMO_USER_ID);
+      const messages = await storage.getChatMessages(getUserId(req));
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -427,18 +405,18 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // Save user message
       await storage.createChatMessage({
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
         role: "user",
         content,
         contextType: "question",
       });
 
       // Get context for AI
-      const profile = await storage.getProfile(DEMO_USER_ID);
-      const assessment = await storage.getOnboardingAssessment(DEMO_USER_ID);
+      const profile = await storage.getProfile(getUserId(req));
+      const assessment = await storage.getOnboardingAssessment(getUserId(req));
       const today = format(new Date(), "yyyy-MM-dd");
-      const recentLogs = await storage.getDailyLogs(DEMO_USER_ID);
-      const messageHistory = await storage.getChatMessages(DEMO_USER_ID, 20);
+      const recentLogs = await storage.getDailyLogs(getUserId(req));
+      const messageHistory = await storage.getChatMessages(getUserId(req), 20);
 
       // Generate AI response
       const aiResponse = await generateMentorResponse(
@@ -449,7 +427,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // Save AI response
       const assistantMessage = await storage.createChatMessage({
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
         role: "assistant",
         content: aiResponse,
         contextType: "coaching",
@@ -466,7 +444,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   
   app.get("/api/wearables", async (req: Request, res: Response) => {
     try {
-      const connections = await storage.getWearableConnections(DEMO_USER_ID);
+      const connections = await storage.getWearableConnections(getUserId(req));
       res.json(connections);
     } catch (error) {
       console.error("Error fetching wearables:", error);
@@ -481,7 +459,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // In a real app, this would initiate OAuth flow
       // For now, we'll just create a pending connection
       const connection = await storage.createOrUpdateWearableConnection({
-        userId: DEMO_USER_ID,
+        userId: getUserId(req),
         provider,
         isConnected: false,
       });
@@ -500,7 +478,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.post("/api/wearables/disconnect", async (req: Request, res: Response) => {
     try {
       const { provider } = req.body;
-      const success = await storage.deleteWearableConnection(DEMO_USER_ID, provider);
+      const success = await storage.deleteWearableConnection(getUserId(req), provider);
       
       if (success) {
         res.json({ success: true });

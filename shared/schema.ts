@@ -1,16 +1,13 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, boolean, timestamp, jsonb, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, boolean, timestamp, jsonb, date, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Users table - core authentication and identification
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  email: text("email"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// Re-export auth models
+export * from "./models/auth";
+
+// Import users from auth for relations
+import { users } from "./models/auth";
 
 // User profile - detailed health and fitness profile
 export const userProfiles = pgTable("user_profiles", {
@@ -304,11 +301,6 @@ export const wearableConnectionsRelations = relations(wearableConnections, ({ on
 }));
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-  email: true,
-});
 
 export const insertUserProfileSchema = createInsertSchema(userProfiles).omit({
   id: true,
@@ -340,9 +332,7 @@ export const insertWearableConnectionSchema = createInsertSchema(wearableConnect
   createdAt: true,
 });
 
-// Types
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+// Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
 export type UserProfile = typeof userProfiles.$inferSelect;
