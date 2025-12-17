@@ -2,7 +2,6 @@ import OpenAI from "openai";
 import type { UserProfile, DailyLog, OnboardingAssessment } from "@shared/schema";
 
 // Using user's own OpenAI API key
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY 
 });
@@ -131,9 +130,10 @@ export async function generateMentorResponse(
     ];
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",
       messages,
-      max_completion_tokens: 1000,
+      max_tokens: 1000,
+      temperature: 0.7,
     });
 
     return response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
