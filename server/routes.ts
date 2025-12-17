@@ -2,6 +2,8 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { generateMentorResponse, calculateTargets } from "./openai";
+import { generateInsights } from "./insights";
+import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { format, subDays, parseISO } from "date-fns";
 import {
   insertUserProfileSchema,
@@ -532,11 +534,11 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   });
 
   // ==================== Food Database Routes ====================
-  
+
   app.get("/api/foods", async (req: Request, res: Response) => {
     try {
       const { q } = req.query;
-      
+
       if (q && typeof q === "string") {
         const foods = await storage.searchFoods(q);
         res.json(foods);
@@ -547,6 +549,188 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error fetching foods:", error);
       res.status(500).json({ error: "Failed to fetch foods" });
+    }
+  });
+
+  // ==================== Health Insights Routes ====================
+
+  app.get("/api/insights", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const insights = await generateInsights(getUserId(req));
+      res.json(insights);
+    } catch (error) {
+      console.error("Error generating insights:", error);
+      res.status(500).json({ error: "Failed to generate insights" });
+    }
+  });
+
+  // ==================== Notification Routes ====================
+
+  app.get("/api/notifications", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const notifications = await storage.getNotifications(getUserId(req));
+      res.json(notifications);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const count = await storage.getUnreadNotificationCount(getUserId(req));
+      res.json({ count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  app.post("/api/notifications/:id/read", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.markNotificationAsRead(id, getUserId(req));
+
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "Notification not found" });
+      }
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  app.post("/api/notifications/read-all", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      await storage.markAllNotificationsAsRead(getUserId(req));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+      res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // ==================== Phase Transition Routes ====================
+
+  app.get("/api/phase-evaluation", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const evaluation = await evaluatePhaseTransition(getUserId(req));
+      res.json(evaluation);
+    } catch (error) {
+      console.error("Error evaluating phase:", error);
+      res.status(500).json({ error: "Failed to evaluate phase transition" });
+    }
+  });
+
+  app.post("/api/phase-transition", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { newPhase } = req.body;
+
+      if (!newPhase || !["recovery", "recomp", "cutting"].includes(newPhase)) {
+        res.status(400).json({ error: "Invalid phase specified" });
+        return;
+      }
+
+      const updatedProfile = await executePhaseTransition(getUserId(req), newPhase);
+      res.json(updatedProfile);
+    } catch (error) {
+      console.error("Error transitioning phase:", error);
+      res.status(500).json({ error: "Failed to transition phase" });
+    }
+  });
+
+  // ==================== Data Export Routes ====================
+
+  app.get("/api/export/json", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+      const assessment = await storage.getOnboardingAssessment(userId);
+      const dailyLogs = await storage.getDailyLogs(userId);
+      const chatMessages = await storage.getChatMessages(userId, 1000);
+
+      // Get food entries for all dates
+      const foodEntriesMap: Record<string, any[]> = {};
+      for (const log of dailyLogs) {
+        const entries = await storage.getFoodEntries(userId, log.logDate);
+        if (entries.length > 0) {
+          foodEntriesMap[log.logDate] = entries;
+        }
+      }
+
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        profile,
+        assessment,
+        dailyLogs,
+        foodEntries: foodEntriesMap,
+        chatMessages,
+      };
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="vitalpath-export-${format(new Date(), "yyyy-MM-dd")}.json"`);
+      res.json(exportData);
+    } catch (error) {
+      console.error("Error exporting JSON:", error);
+      res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
+  app.get("/api/export/csv", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const dailyLogs = await storage.getDailyLogs(userId);
+
+      // Generate CSV
+      const headers = [
+        "Date",
+        "Weight (kg)",
+        "Calories",
+        "Protein (g)",
+        "Carbs (g)",
+        "Fat (g)",
+        "Water (L)",
+        "Steps",
+        "Sleep (hrs)",
+        "Sleep Quality",
+        "Energy",
+        "Stress",
+        "Mood",
+        "Workout",
+        "Notes",
+      ];
+
+      const rows = dailyLogs.map((log) => [
+        log.logDate,
+        log.weightKg?.toString() || "",
+        log.caloriesConsumed?.toString() || "",
+        log.proteinGrams?.toString() || "",
+        log.carbsGrams?.toString() || "",
+        log.fatGrams?.toString() || "",
+        log.waterLiters?.toString() || "",
+        log.steps?.toString() || "",
+        log.sleepHours?.toString() || "",
+        log.sleepQuality?.toString() || "",
+        log.energyLevel?.toString() || "",
+        log.stressLevel?.toString() || "",
+        log.moodRating?.toString() || "",
+        log.workoutCompleted ? "Yes" : "No",
+        (log.notes || "").replace(/"/g, '""'),
+      ]);
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+      ].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="vitalpath-logs-${format(new Date(), "yyyy-MM-dd")}.csv"`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error("Error exporting CSV:", error);
+      res.status(500).json({ error: "Failed to export data" });
     }
   });
 

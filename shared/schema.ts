@@ -231,7 +231,7 @@ export const educationalContent = pgTable("educational_content", {
 // Food database for quick lookup
 export const foodDatabase = pgTable("food_database", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  
+
   name: text("name").notNull(),
   servingSize: text("serving_size"),
   calories: integer("calories"),
@@ -240,7 +240,21 @@ export const foodDatabase = pgTable("food_database", {
   fatGrams: real("fat_grams"),
   fiberGrams: real("fiber_grams"),
   category: text("category"), // protein, carbs, fats, vegetables
-  
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// User notifications
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  type: text("type").notNull(), // reminder, insight, phase_change, achievement
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false),
+  actionUrl: text("action_url"),
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -258,6 +272,14 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   foodEntries: many(foodEntries),
   chatMessages: many(chatMessages),
   wearableConnections: many(wearableConnections),
+  notifications: many(notifications),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
 }));
 
 export const userProfilesRelations = relations(userProfiles, ({ one }) => ({
@@ -332,6 +354,11 @@ export const insertWearableConnectionSchema = createInsertSchema(wearableConnect
   createdAt: true,
 });
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -355,3 +382,6 @@ export type WearableConnection = typeof wearableConnections.$inferSelect;
 export type WorkoutTemplate = typeof workoutTemplates.$inferSelect;
 export type EducationalContent = typeof educationalContent.$inferSelect;
 export type FoodDatabaseItem = typeof foodDatabase.$inferSelect;
+
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;

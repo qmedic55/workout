@@ -143,7 +143,7 @@ export async function generateMentorResponse(
   }
 }
 
-export function calculateTargets(profile: Partial<UserProfile & OnboardingAssessment>): {
+export function calculateTargets(profile: Partial<UserProfile & OnboardingAssessment> & { forcePhase?: string }): {
   maintenanceCalories: number;
   targetCalories: number;
   proteinGrams: number;
@@ -181,24 +181,29 @@ export function calculateTargets(profile: Partial<UserProfile & OnboardingAssess
   const multiplier = activityMultipliers[safeActivityLevel] || 1.2;
   const maintenanceCalories = Math.round(bmr * multiplier);
 
-  // Determine recommended phase based on dieting history
-  let recommendedPhase = "recomp";
+  // Determine recommended phase based on dieting history or forced phase
+  let recommendedPhase = profile.forcePhase || "recomp";
   let calorieAdjustment = 0;
 
-  if (hasBeenDietingRecently && dietingDurationMonths && dietingDurationMonths > 3) {
-    if (previousLowestCalories && previousLowestCalories < bmr) {
-      recommendedPhase = "recovery";
-      calorieAdjustment = 100; // Start reverse diet
+  // Only auto-determine phase if not forced
+  if (!profile.forcePhase) {
+    if (hasBeenDietingRecently && dietingDurationMonths && dietingDurationMonths > 3) {
+      if (previousLowestCalories && previousLowestCalories < bmr) {
+        recommendedPhase = "recovery";
+        calorieAdjustment = 100; // Start reverse diet
+      }
+    } else if (!doesResistanceTraining) {
+      recommendedPhase = "recomp"; // Build muscle while learning
     }
-  } else if (!doesResistanceTraining) {
-    recommendedPhase = "recomp"; // Build muscle while learning
   }
 
   // Calculate target calories
   let targetCalories: number;
   switch (recommendedPhase) {
     case "recovery":
-      targetCalories = (previousLowestCalories || bmr) + calorieAdjustment;
+      targetCalories = profile.forcePhase
+        ? maintenanceCalories // Use maintenance for manual transitions
+        : (previousLowestCalories || bmr) + calorieAdjustment;
       break;
     case "cutting":
       targetCalories = Math.round(maintenanceCalories * 0.85); // 15% deficit

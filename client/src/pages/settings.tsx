@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
-import { User, Target, MessageSquare, Moon, Sun, Save } from "lucide-react";
+import { User, Target, MessageSquare, Moon, Sun, Save, Download, FileJson, FileSpreadsheet } from "lucide-react";
 import type { UserProfile } from "@shared/schema";
 
 const settingsSchema = z.object({
@@ -353,6 +353,46 @@ export default function Settings() {
                   )}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Download className="h-5 w-5" />
+                Export Your Data
+              </CardTitle>
+              <CardDescription>Download all your VitalPath data</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Export your profile, daily logs, nutrition data, and chat history in your preferred format.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    window.location.href = "/api/export/json";
+                  }}
+                  data-testid="button-export-json"
+                >
+                  <FileJson className="h-4 w-4 mr-2" />
+                  Export as JSON
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    window.location.href = "/api/export/csv";
+                  }}
+                  data-testid="button-export-csv"
+                >
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Export Daily Logs (CSV)
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                JSON includes all data (profile, logs, food entries, chat). CSV contains daily log summaries only.
+              </p>
             </CardContent>
           </Card>
 

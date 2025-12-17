@@ -23,6 +23,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { NotificationBell } from "@/components/notification-bell";
 
 const mainNavItems = [
   {
@@ -93,17 +94,20 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
-        <Link href="/">
-          <div className="flex items-center gap-3 cursor-pointer" data-testid="link-home">
-            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">V</span>
+        <div className="flex items-center justify-between">
+          <Link href="/">
+            <div className="flex items-center gap-3 cursor-pointer" data-testid="link-home">
+              <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+                <span className="text-primary-foreground font-bold text-lg">V</span>
+              </div>
+              <div>
+                <h1 className="font-semibold text-lg leading-none">VitalPath</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">Health Mentor 40+</p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-semibold text-lg leading-none">VitalPath</h1>
-              <p className="text-xs text-muted-foreground mt-0.5">Health Mentor 40+</p>
-            </div>
-          </div>
-        </Link>
+          </Link>
+          <NotificationBell />
+        </div>
       </SidebarHeader>
 
       <SidebarContent>

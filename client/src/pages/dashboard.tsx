@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HealthInsights } from "@/components/health-insights";
 import { Link, useLocation } from "wouter";
 import {
   Scale,
@@ -296,12 +297,16 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <PhaseCard 
-          phase={profile?.currentPhase || "assessment"} 
+        <PhaseCard
+          phase={profile?.currentPhase || "assessment"}
           startDate={profile?.phaseStartDate || undefined}
         />
         <QuickActionCard />
       </div>
+
+      {profile?.onboardingCompleted && (
+        <HealthInsights limit={3} />
+      )}
 
       {profile?.targetCalories && (
         <Card>
