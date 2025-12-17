@@ -231,6 +231,22 @@ export const educationalContent = pgTable("educational_content", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Food database for quick lookup
+export const foodDatabase = pgTable("food_database", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  name: text("name").notNull(),
+  servingSize: text("serving_size"),
+  calories: integer("calories"),
+  proteinGrams: real("protein_grams"),
+  carbsGrams: real("carbs_grams"),
+  fatGrams: real("fat_grams"),
+  fiberGrams: real("fiber_grams"),
+  category: text("category"), // protein, carbs, fats, vegetables
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(userProfiles, {
@@ -348,3 +364,4 @@ export type WearableConnection = typeof wearableConnections.$inferSelect;
 
 export type WorkoutTemplate = typeof workoutTemplates.$inferSelect;
 export type EducationalContent = typeof educationalContent.$inferSelect;
+export type FoodDatabaseItem = typeof foodDatabase.$inferSelect;

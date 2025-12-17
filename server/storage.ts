@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lte } from "drizzle-orm";
+import { eq, and, desc, gte, lte, ilike } from "drizzle-orm";
 import { db } from "./db";
 import {
   users,
@@ -10,6 +10,7 @@ import {
   wearableConnections,
   workoutTemplates,
   educationalContent,
+  foodDatabase,
   type User,
   type InsertUser,
   type UserProfile,
@@ -26,6 +27,7 @@ import {
   type InsertWearableConnection,
   type WorkoutTemplate,
   type EducationalContent,
+  type FoodDatabaseItem,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -69,6 +71,10 @@ export interface IStorage {
   // Educational Content
   getEducationalContent(): Promise<EducationalContent[]>;
   getEducationalContentBySlug(slug: string): Promise<EducationalContent | undefined>;
+
+  // Food Database
+  searchFoods(query: string): Promise<FoodDatabaseItem[]>;
+  getAllFoods(): Promise<FoodDatabaseItem[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -251,6 +257,19 @@ export class DatabaseStorage implements IStorage {
   async getEducationalContentBySlug(slug: string): Promise<EducationalContent | undefined> {
     const result = await db.select().from(educationalContent).where(eq(educationalContent.slug, slug));
     return result[0];
+  }
+
+  // Food Database
+  async searchFoods(query: string): Promise<FoodDatabaseItem[]> {
+    return db
+      .select()
+      .from(foodDatabase)
+      .where(ilike(foodDatabase.name, `%${query}%`))
+      .limit(20);
+  }
+
+  async getAllFoods(): Promise<FoodDatabaseItem[]> {
+    return db.select().from(foodDatabase);
   }
 }
 

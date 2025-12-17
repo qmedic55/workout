@@ -553,5 +553,24 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // ==================== Food Database Routes ====================
+  
+  app.get("/api/foods", async (req: Request, res: Response) => {
+    try {
+      const { q } = req.query;
+      
+      if (q && typeof q === "string") {
+        const foods = await storage.searchFoods(q);
+        res.json(foods);
+      } else {
+        const foods = await storage.getAllFoods();
+        res.json(foods);
+      }
+    } catch (error) {
+      console.error("Error fetching foods:", error);
+      res.status(500).json({ error: "Failed to fetch foods" });
+    }
+  });
+
   return httpServer;
 }
