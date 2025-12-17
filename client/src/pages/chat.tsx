@@ -121,6 +121,7 @@ function ChatSkeleton() {
 
 export default function Chat() {
   const [input, setInput] = useState("");
+  const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -134,13 +135,24 @@ export default function Chat() {
       return response.json();
     },
     onSuccess: () => {
+      setPendingMessage(null);
       queryClient.invalidateQueries({ queryKey: ["/api/chat/messages"] });
+    },
+    onError: () => {
+      setPendingMessage(null);
     },
   });
 
   const handleSend = () => {
     if (!input.trim() || sendMessageMutation.isPending) return;
-    sendMessageMutation.mutate(input.trim());
+    const content = input.trim();
+    setPendingMessage({
+      id: `pending-${Date.now()}`,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    });
+    sendMessageMutation.mutate(content);
     setInput("");
   };
 
@@ -186,7 +198,7 @@ export default function Chat() {
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         {isLoading ? (
           <ChatSkeleton />
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !pendingMessage ? (
           <SuggestedPrompts onSelect={handleSuggestedPrompt} />
         ) : (
           <div className="space-y-4">
@@ -201,6 +213,7 @@ export default function Chat() {
                 }}
               />
             ))}
+            {pendingMessage && <MessageBubble message={pendingMessage} />}
             {sendMessageMutation.isPending && <TypingIndicator />}
           </div>
         )}

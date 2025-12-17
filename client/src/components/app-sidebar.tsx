@@ -9,6 +9,7 @@ import {
   Settings,
   Watch,
   ClipboardList,
+  Blocks,
 } from "lucide-react";
 import {
   Sidebar,
@@ -75,6 +76,15 @@ const resourceItems = [
     url: "/settings",
     icon: Settings,
   },
+  ...(import.meta.env.DEV
+    ? [
+        {
+          title: "Playground",
+          url: "/playground",
+          icon: Blocks,
+        },
+      ]
+    : []),
 ];
 
 export function AppSidebar() {
