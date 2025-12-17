@@ -286,3 +286,86 @@
     inset: -1px;
   }
 }
+
+/* ===== MOBILE PWA STYLES ===== */
+
+/* iOS Safe Area Support */
+@supports (padding: max(0px)) {
+  .safe-area-inset-top {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+  
+  .safe-area-inset-bottom {
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+  
+  .safe-area-inset-left {
+    padding-left: max(0px, env(safe-area-inset-left));
+  }
+  
+  .safe-area-inset-right {
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
+/* PWA Standalone Mode Styles */
+@media (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  
+  /* Add safe area padding when in standalone mode */
+  .app-header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  
+  .app-footer,
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* Mobile Touch Optimizations */
+@media (max-width: 768px) {
+  /* Larger touch targets for 40+ users */
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+  
+  /* Prevent text selection on interactive elements */
+  button,
+  [role="button"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* Smooth scrolling on iOS */
+  .overflow-auto,
+  .overflow-scroll,
+  .overflow-y-auto,
+  .overflow-y-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Hide scrollbars on mobile for cleaner look */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  
+  * {
+    scrollbar-width: none;
+  }
+}
+
+/* Pull-to-refresh prevention for PWA */
+html {
+  overscroll-behavior-y: contain;
+}

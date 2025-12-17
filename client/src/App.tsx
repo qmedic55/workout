@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Activity, Brain, Heart, Sparkles } from "lucide-react";
+import { MobileNav } from "@/components/mobile-nav";
 
 import Dashboard from "@/pages/dashboard";
 import Chat from "@/pages/chat";
@@ -130,16 +131,25 @@ function AuthenticatedApp() {
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
-        <AppSidebar />
+        {/* Sidebar hidden on mobile, visible on md+ */}
+        <div className="hidden md:block">
+          <AppSidebar />
+        </div>
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-4 px-4 h-14 border-b bg-background shrink-0 sticky top-0 z-50">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <header className="flex items-center justify-between gap-4 px-4 h-14 border-b bg-background shrink-0 sticky top-0 z-50 safe-area-inset-top">
+            <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden md:flex" />
+            <div className="flex items-center gap-2 md:hidden">
+              <Activity className="h-5 w-5 text-primary" />
+              <span className="font-semibold">VitalPath</span>
+            </div>
             <ThemeToggle />
           </header>
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-auto pb-20 md:pb-0">
             <Router />
           </main>
         </div>
+        {/* Mobile bottom navigation */}
+        <MobileNav />
       </div>
     </SidebarProvider>
   );
