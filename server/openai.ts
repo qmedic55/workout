@@ -131,10 +131,9 @@ export async function generateMentorResponse(
     ];
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages,
-      max_tokens: 1000,
-      temperature: 0.7,
+      max_completion_tokens: 1000,
     });
 
     return response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
