@@ -1,16 +1,557 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { generateMentorResponse, calculateTargets } from "./openai";
+import { format, subDays, parseISO } from "date-fns";
+import {
+  insertUserProfileSchema,
+  insertDailyLogSchema,
+  insertFoodEntrySchema,
+  insertChatMessageSchema,
+} from "@shared/schema";
+import { z } from "zod";
+
+// For demo purposes, we'll use a simple session-like system
+// In production, you'd use proper authentication
+let DEMO_USER_ID = "";
+
+// Validation schemas
+const onboardingSchema = z.object({
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().optional(),
+  age: z.number().int().min(18).max(120).optional(),
+  sex: z.enum(["male", "female"]).optional(),
+  heightCm: z.number().min(100).max(250).optional(),
+  currentWeightKg: z.number().min(30).max(300).optional(),
+  targetWeightKg: z.number().min(30).max(300).optional(),
+  waistCircumferenceCm: z.number().optional(),
+  
+  hasBeenDietingRecently: z.boolean().optional(),
+  dietingDurationMonths: z.number().optional(),
+  previousLowestCalories: z.number().optional(),
+  typicalDailyEating: z.string().optional(),
+  biggestHurdles: z.string().optional(),
+  relationshipWithFood: z.string().optional(),
+  
+  doesResistanceTraining: z.boolean().optional(),
+  resistanceTrainingFrequency: z.number().optional(),
+  resistanceTrainingType: z.string().optional(),
+  doesCardio: z.boolean().optional(),
+  averageDailySteps: z.number().optional(),
+  physicalLimitations: z.string().optional(),
+  knowsRIR: z.boolean().optional(),
+  
+  occupation: z.string().optional(),
+  activityLevel: z.enum(["sedentary", "lightly_active", "moderately_active", "very_active"]).optional(),
+  averageSleepHours: z.number().optional(),
+  sleepQuality: z.number().int().min(1).max(10).optional(),
+  stressLevel: z.number().int().min(1).max(10).optional(),
+  stressSources: z.string().optional(),
+  
+  energyLevelMorning: z.number().int().min(1).max(10).optional(),
+  energyLevelAfternoon: z.number().int().min(1).max(10).optional(),
+  digestionQuality: z.string().optional(),
+  moodGeneral: z.number().int().min(1).max(10).optional(),
+  menstrualStatus: z.string().optional(),
+  
+  usesWearable: z.boolean().optional(),
+  wearableType: z.string().optional(),
+  
+  coachingTone: z.enum(["empathetic", "scientific", "casual", "tough_love"]).optional(),
+  hasHealthConditions: z.boolean().optional(),
+  healthConditionsNotes: z.string().optional(),
+});
+
+const chatMessageSchema = z.object({
+  content: z.string().min(1, "Message content is required"),
+});
+
+const dailyLogInputSchema = z.object({
+  logDate: z.string(),
+  weightKg: z.number().optional(),
+  waistCm: z.number().optional(),
+  hipsCm: z.number().optional(),
+  chestCm: z.number().optional(),
+  caloriesConsumed: z.number().optional(),
+  proteinGrams: z.number().optional(),
+  carbsGrams: z.number().optional(),
+  fatGrams: z.number().optional(),
+  waterLiters: z.number().optional(),
+  steps: z.number().optional(),
+  activeMinutes: z.number().optional(),
+  workoutCompleted: z.boolean().optional(),
+  workoutType: z.string().optional(),
+  workoutDurationMinutes: z.number().optional(),
+  sleepHours: z.number().optional(),
+  sleepQuality: z.number().int().min(1).max(10).optional(),
+  energyLevel: z.number().int().min(1).max(10).optional(),
+  stressLevel: z.number().int().min(1).max(10).optional(),
+  moodRating: z.number().int().min(1).max(10).optional(),
+  digestionNotes: z.string().optional(),
+  avgHeartRate: z.number().optional(),
+  hrv: z.number().optional(),
+  notes: z.string().optional(),
+  dataSource: z.string().optional(),
+});
+
+const foodEntryInputSchema = z.object({
+  logDate: z.string(),
+  mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]),
+  foodName: z.string().min(1),
+  servingSize: z.string().optional(),
+  servingQuantity: z.number().optional(),
+  calories: z.number().optional(),
+  proteinGrams: z.number().optional(),
+  carbsGrams: z.number().optional(),
+  fatGrams: z.number().optional(),
+  fiberGrams: z.number().optional(),
+});
+
+async function ensureDemoUser() {
+  // First check if user exists by username
+  let user = await storage.getUserByUsername("demo");
+  
+  if (!user) {
+    try {
+      user = await storage.createUser({
+        username: "demo",
+        password: "demo123",
+        email: "demo@vitalpath.app",
+      });
+    } catch (error) {
+      // If user creation fails due to duplicate, try to fetch by username again
+      user = await storage.getUserByUsername("demo");
+    }
+  }
+  
+  // Store the user ID for subsequent operations
+  if (user) {
+    DEMO_USER_ID = user.id;
+  }
+  
+  return user;
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  
+  // Initialize demo user
+  await ensureDemoUser();
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  // ==================== Profile Routes ====================
+  
+  app.get("/api/profile", async (req: Request, res: Response) => {
+    try {
+      const profile = await storage.getProfile(DEMO_USER_ID);
+      if (!profile) {
+        res.json(null);
+        return;
+      }
+      res.json(profile);
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      res.status(500).json({ error: "Failed to fetch profile" });
+    }
+  });
+
+  app.patch("/api/profile", async (req: Request, res: Response) => {
+    try {
+      const existingProfile = await storage.getProfile(DEMO_USER_ID);
+      
+      if (!existingProfile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const updatedProfile = await storage.updateProfile(DEMO_USER_ID, req.body);
+      res.json(updatedProfile);
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // ==================== Onboarding Routes ====================
+  
+  app.post("/api/onboarding", async (req: Request, res: Response) => {
+    try {
+      // Validate input
+      const parseResult = onboardingSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        res.status(400).json({ error: "Invalid onboarding data", details: parseResult.error.flatten() });
+        return;
+      }
+      const data = parseResult.data;
+      
+      // Calculate targets based on assessment data
+      const targets = calculateTargets({
+        age: data.age,
+        sex: data.sex,
+        heightCm: data.heightCm,
+        currentWeightKg: data.currentWeightKg,
+        activityLevel: data.activityLevel,
+        hasBeenDietingRecently: data.hasBeenDietingRecently,
+        dietingDurationMonths: data.dietingDurationMonths,
+        previousLowestCalories: data.previousLowestCalories,
+        doesResistanceTraining: data.doesResistanceTraining,
+      });
+
+      // Create or update user profile
+      let profile = await storage.getProfile(DEMO_USER_ID);
+      
+      const profileData = {
+        userId: DEMO_USER_ID,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        age: data.age,
+        sex: data.sex,
+        heightCm: data.heightCm,
+        currentWeightKg: data.currentWeightKg,
+        targetWeightKg: data.targetWeightKg,
+        waistCircumferenceCm: data.waistCircumferenceCm,
+        currentPhase: targets.recommendedPhase,
+        phaseStartDate: format(new Date(), "yyyy-MM-dd"),
+        maintenanceCalories: targets.maintenanceCalories,
+        targetCalories: targets.targetCalories,
+        proteinGrams: targets.proteinGrams,
+        carbsGrams: targets.carbsGrams,
+        fatGrams: targets.fatGrams,
+        dailyStepsTarget: data.averageDailySteps || 8000,
+        coachingTone: data.coachingTone,
+        hasHealthConditions: data.hasHealthConditions,
+        healthConditionsNotes: data.healthConditionsNotes,
+        onboardingCompleted: true,
+      };
+
+      if (profile) {
+        profile = await storage.updateProfile(DEMO_USER_ID, profileData);
+      } else {
+        profile = await storage.createProfile(profileData);
+      }
+
+      // Store assessment data
+      await storage.createOnboardingAssessment({
+        userId: DEMO_USER_ID,
+        hasBeenDietingRecently: data.hasBeenDietingRecently,
+        dietingDurationMonths: data.dietingDurationMonths,
+        previousLowestCalories: data.previousLowestCalories,
+        typicalDailyEating: data.typicalDailyEating,
+        biggestHurdles: data.biggestHurdles,
+        relationshipWithFood: data.relationshipWithFood,
+        doesResistanceTraining: data.doesResistanceTraining,
+        resistanceTrainingFrequency: data.resistanceTrainingFrequency,
+        resistanceTrainingType: data.resistanceTrainingType,
+        doesCardio: data.doesCardio,
+        averageDailySteps: data.averageDailySteps,
+        physicalLimitations: data.physicalLimitations,
+        knowsRIR: data.knowsRIR,
+        occupation: data.occupation,
+        activityLevel: data.activityLevel,
+        averageSleepHours: data.averageSleepHours,
+        sleepQuality: data.sleepQuality,
+        stressLevel: data.stressLevel,
+        stressSources: data.stressSources,
+        energyLevelMorning: data.energyLevelMorning,
+        energyLevelAfternoon: data.energyLevelAfternoon,
+        digestionQuality: data.digestionQuality,
+        moodGeneral: data.moodGeneral,
+        menstrualStatus: data.menstrualStatus,
+        usesWearable: data.usesWearable,
+        wearableType: data.wearableType,
+        metabolicState: targets.recommendedPhase === "recovery" ? "adapted" : "healthy",
+        recommendedStartPhase: targets.recommendedPhase,
+      });
+
+      // Send welcome message from AI mentor
+      const welcomeMessage = `Welcome to VitalPath, ${data.firstName}! I'm your AI health mentor, and I'm here to guide you on your body recomposition journey.
+
+Based on your assessment, I've created a personalized plan for you. Your recommended starting phase is **${targets.recommendedPhase === "recovery" ? "Metabolic Recovery" : targets.recommendedPhase === "cutting" ? "Fat Loss" : "Body Recomposition"}**.
+
+Here are your daily targets:
+- **Calories**: ${targets.targetCalories} kcal
+- **Protein**: ${targets.proteinGrams}g
+- **Carbs**: ${targets.carbsGrams}g
+- **Fat**: ${targets.fatGrams}g
+
+Feel free to ask me any questions about your plan, nutrition, training, or anything else related to your health journey. I'm here to help! 💪`;
+
+      await storage.createChatMessage({
+        userId: DEMO_USER_ID,
+        role: "assistant",
+        content: welcomeMessage,
+        contextType: "onboarding",
+      });
+
+      res.json({ profile, targets });
+    } catch (error) {
+      console.error("Error processing onboarding:", error);
+      res.status(500).json({ error: "Failed to process onboarding" });
+    }
+  });
+
+  // ==================== Daily Log Routes ====================
+  
+  app.get("/api/daily-logs/today", async (req: Request, res: Response) => {
+    try {
+      const today = format(new Date(), "yyyy-MM-dd");
+      const log = await storage.getDailyLog(DEMO_USER_ID, today);
+      res.json(log || null);
+    } catch (error) {
+      console.error("Error fetching today's log:", error);
+      res.status(500).json({ error: "Failed to fetch log" });
+    }
+  });
+
+  app.get("/api/daily-logs/:date", async (req: Request, res: Response) => {
+    try {
+      const { date } = req.params;
+      const log = await storage.getDailyLog(DEMO_USER_ID, date);
+      res.json(log || null);
+    } catch (error) {
+      console.error("Error fetching log:", error);
+      res.status(500).json({ error: "Failed to fetch log" });
+    }
+  });
+
+  app.get("/api/daily-logs/range/:timeRange", async (req: Request, res: Response) => {
+    try {
+      const { timeRange } = req.params;
+      const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+      const startDate = format(subDays(new Date(), days), "yyyy-MM-dd");
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      
+      const logs = await storage.getDailyLogs(DEMO_USER_ID, startDate, endDate);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching logs:", error);
+      res.status(500).json({ error: "Failed to fetch logs" });
+    }
+  });
+
+  app.post("/api/daily-logs", async (req: Request, res: Response) => {
+    try {
+      // Validate input
+      const parseResult = dailyLogInputSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        res.status(400).json({ error: "Invalid daily log data", details: parseResult.error.flatten() });
+        return;
+      }
+      
+      const data = {
+        ...parseResult.data,
+        userId: DEMO_USER_ID,
+      };
+      
+      const log = await storage.createOrUpdateDailyLog(data);
+      res.json(log);
+    } catch (error) {
+      console.error("Error saving log:", error);
+      res.status(500).json({ error: "Failed to save log" });
+    }
+  });
+
+  // ==================== Food Entry Routes ====================
+  
+  app.get("/api/food-entries/:date", async (req: Request, res: Response) => {
+    try {
+      const { date } = req.params;
+      const entries = await storage.getFoodEntries(DEMO_USER_ID, date);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching food entries:", error);
+      res.status(500).json({ error: "Failed to fetch food entries" });
+    }
+  });
+
+  app.post("/api/food-entries", async (req: Request, res: Response) => {
+    try {
+      // Validate input
+      const parseResult = foodEntryInputSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        res.status(400).json({ error: "Invalid food entry data", details: parseResult.error.flatten() });
+        return;
+      }
+      
+      const data = {
+        ...parseResult.data,
+        userId: DEMO_USER_ID,
+      };
+      
+      const entry = await storage.createFoodEntry(data);
+      res.json(entry);
+    } catch (error) {
+      console.error("Error creating food entry:", error);
+      res.status(500).json({ error: "Failed to create food entry" });
+    }
+  });
+
+  app.delete("/api/food-entries/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteFoodEntry(id, DEMO_USER_ID);
+      
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "Food entry not found" });
+      }
+    } catch (error) {
+      console.error("Error deleting food entry:", error);
+      res.status(500).json({ error: "Failed to delete food entry" });
+    }
+  });
+
+  // ==================== Chat Routes ====================
+  
+  app.get("/api/chat/messages", async (req: Request, res: Response) => {
+    try {
+      const messages = await storage.getChatMessages(DEMO_USER_ID);
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  app.post("/api/chat/send", async (req: Request, res: Response) => {
+    try {
+      // Validate input
+      const parseResult = chatMessageSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        res.status(400).json({ error: "Invalid message data", details: parseResult.error.flatten() });
+        return;
+      }
+      const { content } = parseResult.data;
+
+      // Save user message
+      await storage.createChatMessage({
+        userId: DEMO_USER_ID,
+        role: "user",
+        content,
+        contextType: "question",
+      });
+
+      // Get context for AI
+      const profile = await storage.getProfile(DEMO_USER_ID);
+      const assessment = await storage.getOnboardingAssessment(DEMO_USER_ID);
+      const today = format(new Date(), "yyyy-MM-dd");
+      const recentLogs = await storage.getDailyLogs(DEMO_USER_ID);
+      const messageHistory = await storage.getChatMessages(DEMO_USER_ID, 20);
+
+      // Generate AI response
+      const aiResponse = await generateMentorResponse(
+        content,
+        messageHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { profile, recentLogs: recentLogs.slice(0, 7), assessment }
+      );
+
+      // Save AI response
+      const assistantMessage = await storage.createChatMessage({
+        userId: DEMO_USER_ID,
+        role: "assistant",
+        content: aiResponse,
+        contextType: "coaching",
+      });
+
+      res.json(assistantMessage);
+    } catch (error) {
+      console.error("Error in chat:", error);
+      res.status(500).json({ error: "Failed to process message" });
+    }
+  });
+
+  // ==================== Wearable Routes ====================
+  
+  app.get("/api/wearables", async (req: Request, res: Response) => {
+    try {
+      const connections = await storage.getWearableConnections(DEMO_USER_ID);
+      res.json(connections);
+    } catch (error) {
+      console.error("Error fetching wearables:", error);
+      res.status(500).json({ error: "Failed to fetch wearables" });
+    }
+  });
+
+  app.post("/api/wearables/connect", async (req: Request, res: Response) => {
+    try {
+      const { provider } = req.body;
+      
+      // In a real app, this would initiate OAuth flow
+      // For now, we'll just create a pending connection
+      const connection = await storage.createOrUpdateWearableConnection({
+        userId: DEMO_USER_ID,
+        provider,
+        isConnected: false,
+      });
+
+      // Return a mock auth URL (in production, this would be the real OAuth URL)
+      res.json({
+        connection,
+        authUrl: `https://api.${provider}.com/oauth/authorize?client_id=demo`,
+      });
+    } catch (error) {
+      console.error("Error connecting wearable:", error);
+      res.status(500).json({ error: "Failed to connect wearable" });
+    }
+  });
+
+  app.post("/api/wearables/disconnect", async (req: Request, res: Response) => {
+    try {
+      const { provider } = req.body;
+      const success = await storage.deleteWearableConnection(DEMO_USER_ID, provider);
+      
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "Connection not found" });
+      }
+    } catch (error) {
+      console.error("Error disconnecting wearable:", error);
+      res.status(500).json({ error: "Failed to disconnect wearable" });
+    }
+  });
+
+  // ==================== Workout Routes ====================
+  
+  app.get("/api/workouts", async (req: Request, res: Response) => {
+    try {
+      const templates = await storage.getWorkoutTemplates();
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching workouts:", error);
+      res.status(500).json({ error: "Failed to fetch workouts" });
+    }
+  });
+
+  // ==================== Educational Content Routes ====================
+  
+  app.get("/api/educational-content", async (req: Request, res: Response) => {
+    try {
+      const content = await storage.getEducationalContent();
+      res.json(content);
+    } catch (error) {
+      console.error("Error fetching content:", error);
+      res.status(500).json({ error: "Failed to fetch content" });
+    }
+  });
+
+  app.get("/api/educational-content/:slug", async (req: Request, res: Response) => {
+    try {
+      const { slug } = req.params;
+      const content = await storage.getEducationalContentBySlug(slug);
+      
+      if (content) {
+        res.json(content);
+      } else {
+        res.status(404).json({ error: "Content not found" });
+      }
+    } catch (error) {
+      console.error("Error fetching content:", error);
+      res.status(500).json({ error: "Failed to fetch content" });
+    }
+  });
 
   return httpServer;
 }
