@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,9 +25,8 @@ import {
   Zap,
   Brain,
   Save,
-  Dumbbell,
-  Ruler,
 } from "lucide-react";
+import { WorkoutLogger } from "@/components/workout-logger";
 import type { DailyLog, UserProfile } from "@shared/schema";
 
 const dailyLogSchema = z.object({
@@ -426,67 +424,17 @@ export default function DailyLogPage() {
                   </FormItem>
                 )}
               />
-
-              <FormField
-                control={form.control}
-                name="workoutCompleted"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="checkbox-workout"
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Completed a workout today</FormLabel>
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              {form.watch("workoutCompleted") && (
-                <div className="grid grid-cols-2 gap-2">
-                  <FormField
-                    control={form.control}
-                    name="workoutType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Type</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="e.g., Strength"
-                            {...field}
-                            data-testid="input-workout-type"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="workoutDurationMinutes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Duration (min)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            {...field}
-                            value={field.value ?? ""}
-                            onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
-                            data-testid="input-workout-duration"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
             </MetricSection>
+
+            {/* Workout Logger - full width */}
+            <div className="md:col-span-2">
+              <WorkoutLogger
+                date={dateStr}
+                onWorkoutChange={(hasWorkout) => {
+                  form.setValue("workoutCompleted", hasWorkout);
+                }}
+              />
+            </div>
 
             <MetricSection title="Sleep" icon={Moon}>
               <FormField

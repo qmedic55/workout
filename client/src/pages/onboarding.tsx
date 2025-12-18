@@ -74,6 +74,7 @@ const onboardingSchema = z.object({
   wearableType: z.string().optional(),
   
   coachingTone: z.enum(["empathetic", "scientific", "casual", "tough_love"]),
+  enableNotifications: z.boolean(),
   hasHealthConditions: z.boolean(),
   healthConditionsNotes: z.string().optional(),
 });
@@ -115,6 +116,7 @@ export default function Onboarding() {
       moodGeneral: 5,
       usesWearable: false,
       coachingTone: "empathetic",
+      enableNotifications: true,
       hasHealthConditions: false,
     },
   });
@@ -837,6 +839,36 @@ export default function Onboarding() {
                           </Select>
                           <FormDescription>
                             We'll adapt our coaching style to match your preference.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="enableNotifications"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Would you like to receive proactive notifications?</FormLabel>
+                          <FormControl>
+                            <RadioGroup
+                              onValueChange={(val) => field.onChange(val === "true")}
+                              value={field.value ? "true" : "false"}
+                              className="flex gap-4"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="true" id="notifications-yes" data-testid="radio-notifications-yes" />
+                                <Label htmlFor="notifications-yes">Yes, keep me on track</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="false" id="notifications-no" data-testid="radio-notifications-no" />
+                                <Label htmlFor="notifications-no">No thanks</Label>
+                              </div>
+                            </RadioGroup>
+                          </FormControl>
+                          <FormDescription>
+                            Get daily reminders, personalized insights, and check-in prompts to help you stay consistent.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

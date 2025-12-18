@@ -134,9 +134,13 @@ export default function Chat() {
       const response = await apiRequest("POST", "/api/chat/send", { content });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setPendingMessage(null);
       queryClient.invalidateQueries({ queryKey: ["/api/chat/messages"] });
+      // If AI applied changes to profile (e.g., updated calories), refresh profile data
+      if (data.appliedChanges && data.appliedChanges.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      }
     },
     onError: () => {
       setPendingMessage(null);

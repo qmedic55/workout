@@ -39,7 +39,8 @@ export const userProfiles = pgTable("user_profiles", {
   
   // Coaching preferences
   coachingTone: text("coaching_tone").default("empathetic"), // scientific, casual, motivational, tough_love
-  
+  enableNotifications: boolean("enable_notifications").default(true), // Daily reminders, insights, check-ins
+
   // Health conditions (for safety disclaimers)
   hasHealthConditions: boolean("has_health_conditions").default(false),
   healthConditionsNotes: text("health_conditions_notes"),
@@ -166,6 +167,34 @@ export const foodEntries = pgTable("food_entries", {
   fatGrams: real("fat_grams"),
   fiberGrams: real("fiber_grams"),
   
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Exercise logs - individual exercise performance tracking
+export const exerciseLogs = pgTable("exercise_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  dailyLogId: varchar("daily_log_id").references(() => dailyLogs.id),
+  workoutTemplateId: varchar("workout_template_id").references(() => workoutTemplates.id),
+  logDate: date("log_date").notNull(),
+
+  // Exercise details (copied from template for historical accuracy)
+  exerciseName: text("exercise_name").notNull(),
+  exerciseOrder: integer("exercise_order").notNull(), // Position in workout
+
+  // Prescribed values (from template)
+  prescribedSets: integer("prescribed_sets"),
+  prescribedReps: text("prescribed_reps"), // e.g., "10-12" or "30 sec"
+  prescribedRir: integer("prescribed_rir"),
+
+  // Actual performance (user input)
+  completedSets: integer("completed_sets"),
+  // Store each set's performance as JSON: [{reps: 12, weightKg: 50}, {reps: 10, weightKg: 50}, ...]
+  setDetails: jsonb("set_details").$type<{ reps: number; weightKg?: number; rir?: number }[]>(),
+
+  notes: text("notes"),
+  skipped: boolean("skipped").default(false),
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -309,6 +338,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   }),
   dailyLogs: many(dailyLogs),
   foodEntries: many(foodEntries),
+  exerciseLogs: many(exerciseLogs),
   chatMessages: many(chatMessages),
   wearableConnections: many(wearableConnections),
   notifications: many(notifications),
@@ -346,6 +376,22 @@ export const dailyLogsRelations = relations(dailyLogs, ({ one, many }) => ({
     references: [users.id],
   }),
   foodEntries: many(foodEntries),
+  exerciseLogs: many(exerciseLogs),
+}));
+
+export const exerciseLogsRelations = relations(exerciseLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [exerciseLogs.userId],
+    references: [users.id],
+  }),
+  dailyLog: one(dailyLogs, {
+    fields: [exerciseLogs.dailyLogId],
+    references: [dailyLogs.id],
+  }),
+  workoutTemplate: one(workoutTemplates, {
+    fields: [exerciseLogs.workoutTemplateId],
+    references: [workoutTemplates.id],
+  }),
 }));
 
 export const foodEntriesRelations = relations(foodEntries, ({ one }) => ({
@@ -395,6 +441,17 @@ export const insertFoodEntrySchema = createInsertSchema(foodEntries).omit({
   createdAt: true,
 });
 
+export const insertExerciseLogSchema = createInsertSchema(exerciseLogs, {
+  setDetails: z.array(z.object({
+    reps: z.number(),
+    weightKg: z.number().optional(),
+    rir: z.number().optional(),
+  })).nullable().optional(),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
   id: true,
   createdAt: true,
@@ -428,6 +485,9 @@ export type DailyLog = typeof dailyLogs.$inferSelect;
 
 export type InsertFoodEntry = z.infer<typeof insertFoodEntrySchema>;
 export type FoodEntry = typeof foodEntries.$inferSelect;
+
+export type InsertExerciseLog = z.infer<typeof insertExerciseLogSchema>;
+export type ExerciseLog = typeof exerciseLogs.$inferSelect;
 
 export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
 export type ChatMessage = typeof chatMessages.$inferSelect;

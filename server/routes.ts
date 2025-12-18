@@ -488,7 +488,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     try {
       const { id } = req.params;
       const success = await storage.deleteFoodEntry(id, getUserId(req));
-      
+
       if (success) {
         res.json({ success: true });
       } else {
@@ -497,6 +497,105 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error deleting food entry:", error);
       res.status(500).json({ error: "Failed to delete food entry" });
+    }
+  });
+
+  // ==================== Exercise Log Routes ====================
+
+  // Get exercise logs for a date
+  app.get("/api/exercise-logs/:date", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { date } = req.params;
+      const logs = await storage.getExerciseLogs(getUserId(req), date);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching exercise logs:", error);
+      res.status(500).json({ error: "Failed to fetch exercise logs" });
+    }
+  });
+
+  // Create a new exercise log
+  app.post("/api/exercise-logs", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const log = await storage.createExerciseLog({
+        ...req.body,
+        userId: getUserId(req),
+      });
+      res.json(log);
+    } catch (error) {
+      console.error("Error creating exercise log:", error);
+      res.status(500).json({ error: "Failed to create exercise log" });
+    }
+  });
+
+  // Bulk create exercise logs (for loading a workout template)
+  app.post("/api/exercise-logs/bulk", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { exercises, workoutTemplateId, logDate } = req.body;
+      const userId = getUserId(req);
+
+      // Delete existing logs for this date first (to allow re-selecting workout)
+      await storage.deleteExerciseLogsByDate(userId, logDate);
+
+      // Create new logs for each exercise
+      const logs = [];
+      for (let i = 0; i < exercises.length; i++) {
+        const exercise = exercises[i];
+        const log = await storage.createExerciseLog({
+          userId,
+          workoutTemplateId,
+          logDate,
+          exerciseName: exercise.name,
+          exerciseOrder: i,
+          prescribedSets: exercise.sets,
+          prescribedReps: exercise.reps,
+          prescribedRir: exercise.rir ?? null,
+          completedSets: null,
+          setDetails: null,
+          notes: exercise.notes ?? null,
+          skipped: false,
+        });
+        logs.push(log);
+      }
+
+      res.json(logs);
+    } catch (error) {
+      console.error("Error bulk creating exercise logs:", error);
+      res.status(500).json({ error: "Failed to create exercise logs" });
+    }
+  });
+
+  // Update an exercise log (for logging weights/reps)
+  app.patch("/api/exercise-logs/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const log = await storage.updateExerciseLog(id, getUserId(req), req.body);
+
+      if (log) {
+        res.json(log);
+      } else {
+        res.status(404).json({ error: "Exercise log not found" });
+      }
+    } catch (error) {
+      console.error("Error updating exercise log:", error);
+      res.status(500).json({ error: "Failed to update exercise log" });
+    }
+  });
+
+  // Delete an exercise log
+  app.delete("/api/exercise-logs/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteExerciseLog(id, getUserId(req));
+
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "Exercise log not found" });
+      }
+    } catch (error) {
+      console.error("Error deleting exercise log:", error);
+      res.status(500).json({ error: "Failed to delete exercise log" });
     }
   });
 

@@ -5,6 +5,7 @@ import {
   onboardingAssessments,
   dailyLogs,
   foodEntries,
+  exerciseLogs,
   chatMessages,
   wearableConnections,
   workoutTemplates,
@@ -20,6 +21,8 @@ import {
   type InsertDailyLog,
   type FoodEntry,
   type InsertFoodEntry,
+  type ExerciseLog,
+  type InsertExerciseLog,
   type ChatMessage,
   type InsertChatMessage,
   type WearableConnection,
@@ -52,6 +55,14 @@ export interface IStorage {
   getFoodEntries(userId: string, date: string): Promise<FoodEntry[]>;
   createFoodEntry(entry: InsertFoodEntry): Promise<FoodEntry>;
   deleteFoodEntry(id: string, userId: string): Promise<boolean>;
+
+  // Exercise Logs
+  getExerciseLogs(userId: string, date: string): Promise<ExerciseLog[]>;
+  getExerciseLogsByWorkout(userId: string, date: string, workoutTemplateId: string): Promise<ExerciseLog[]>;
+  createExerciseLog(log: InsertExerciseLog): Promise<ExerciseLog>;
+  updateExerciseLog(id: string, userId: string, updates: Partial<InsertExerciseLog>): Promise<ExerciseLog | undefined>;
+  deleteExerciseLog(id: string, userId: string): Promise<boolean>;
+  deleteExerciseLogsByDate(userId: string, date: string): Promise<void>;
 
   // Chat Messages
   getChatMessages(userId: string, limit?: number): Promise<ChatMessage[]>;
@@ -186,6 +197,57 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(foodEntries.id, id), eq(foodEntries.userId, userId)))
       .returning();
     return result.length > 0;
+  }
+
+  // Exercise Logs
+  async getExerciseLogs(userId: string, date: string): Promise<ExerciseLog[]> {
+    return db
+      .select()
+      .from(exerciseLogs)
+      .where(and(eq(exerciseLogs.userId, userId), eq(exerciseLogs.logDate, date)))
+      .orderBy(exerciseLogs.exerciseOrder);
+  }
+
+  async getExerciseLogsByWorkout(userId: string, date: string, workoutTemplateId: string): Promise<ExerciseLog[]> {
+    return db
+      .select()
+      .from(exerciseLogs)
+      .where(
+        and(
+          eq(exerciseLogs.userId, userId),
+          eq(exerciseLogs.logDate, date),
+          eq(exerciseLogs.workoutTemplateId, workoutTemplateId)
+        )
+      )
+      .orderBy(exerciseLogs.exerciseOrder);
+  }
+
+  async createExerciseLog(log: InsertExerciseLog): Promise<ExerciseLog> {
+    const result = await db.insert(exerciseLogs).values(log).returning();
+    return result[0];
+  }
+
+  async updateExerciseLog(id: string, userId: string, updates: Partial<InsertExerciseLog>): Promise<ExerciseLog | undefined> {
+    const result = await db
+      .update(exerciseLogs)
+      .set(updates)
+      .where(and(eq(exerciseLogs.id, id), eq(exerciseLogs.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteExerciseLog(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(exerciseLogs)
+      .where(and(eq(exerciseLogs.id, id), eq(exerciseLogs.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async deleteExerciseLogsByDate(userId: string, date: string): Promise<void> {
+    await db
+      .delete(exerciseLogs)
+      .where(and(eq(exerciseLogs.userId, userId), eq(exerciseLogs.logDate, date)));
   }
 
   // Chat Messages
