@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HealthInsights } from "@/components/health-insights";
 import { Link, useLocation } from "wouter";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Scale,
   Flame,
@@ -19,6 +21,7 @@ import {
   Target,
   Zap,
   ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import type { UserProfile, DailyLog } from "@shared/schema";
 
@@ -231,6 +234,7 @@ function DashboardSkeleton() {
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
+  const { toast } = useToast();
 
   const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
@@ -240,6 +244,40 @@ export default function Dashboard() {
 
   const { data: todayLog, isLoading: logLoading } = useQuery<DailyLog>({
     queryKey: ["/api/daily-logs/today"],
+  });
+
+  // AI Sync mutation - analyzes all data and applies updates
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/sync");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      // Invalidate all relevant queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/insights"] });
+
+      if (data.appliedChanges && data.appliedChanges.length > 0) {
+        toast({
+          title: "Plan updated",
+          description: `AI made ${data.appliedChanges.length} adjustment(s) to your plan.`,
+        });
+      } else {
+        toast({
+          title: "Sync complete",
+          description: "Your data is up to date. No changes needed.",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Sync failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   // Auto-redirect unonboarded users to onboarding
@@ -261,6 +299,25 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header with Sync Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Your health journey at a glance</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+          className="gap-2"
+          data-testid="button-sync"
+        >
+          <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+          {syncMutation.isPending ? "Syncing..." : "Sync"}
+        </Button>
+      </div>
+
       <WelcomeCard profile={profile} />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

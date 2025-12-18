@@ -1188,6 +1188,114 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // ==================== AI Sync/Refresh Routes ====================
+
+  // Trigger AI to analyze all user data and apply any needed updates
+  app.post("/api/sync", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      // Gather all user data
+      const assessment = await storage.getOnboardingAssessment(userId);
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 14), "yyyy-MM-dd");
+      const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
+
+      // Get food entries for last 7 days
+      const allFoodEntries: any[] = [];
+      for (let i = 0; i < 7; i++) {
+        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
+        const dayEntries = await storage.getFoodEntries(userId, dateStr);
+        allFoodEntries.push(...dayEntries);
+      }
+
+      // Get exercise logs for last 14 days
+      const allExerciseLogs: any[] = [];
+      for (let i = 0; i < 14; i++) {
+        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
+        const dayLogs = await storage.getExerciseLogs(userId, dateStr);
+        allExerciseLogs.push(...dayLogs);
+      }
+
+      // Get daily progress summary
+      const dailyProgressSummary = await getDailyProgressSummary(userId);
+
+      // Generate AI analysis with a specific sync prompt
+      const syncPrompt = `Please review my current data and let me know if any adjustments are needed to my targets or plan. Look at my recent logs, food entries, and exercise data to see if anything should be updated.`;
+
+      const aiResponse = await generateMentorResponse(
+        syncPrompt,
+        [], // No conversation history for sync
+        {
+          profile,
+          recentLogs,
+          assessment,
+          foodEntries: allFoodEntries,
+          exerciseLogs: allExerciseLogs,
+          dailyProgressSummary,
+        }
+      );
+
+      // Save the sync message
+      const assistantMessage = await storage.createChatMessage({
+        userId,
+        role: "assistant",
+        content: aiResponse,
+        contextType: "sync",
+      });
+
+      // Parse and apply any changes
+      let appliedChanges: string[] = [];
+      console.log("[AI Sync] Parsing sync response for actions...");
+      const parsedActions = await parseAIResponseForActions(aiResponse, profile);
+      console.log("[AI Sync] Parse result:", JSON.stringify(parsedActions, null, 2));
+
+      if (parsedActions.hasChanges && parsedActions.changes.length > 0) {
+        const { profileUpdates, changeRecords } = prepareProfileUpdates(
+          parsedActions.changes,
+          profile,
+          assistantMessage.id
+        );
+        console.log("[AI Sync] Profile updates to apply:", JSON.stringify(profileUpdates, null, 2));
+
+        if (Object.keys(profileUpdates).length > 0) {
+          const updatedProfile = await storage.updateProfile(userId, profileUpdates);
+          console.log("[AI Sync] Profile updated successfully. New targetCalories:", updatedProfile?.targetCalories);
+
+          for (const change of changeRecords) {
+            await storage.createProfileChange(change);
+            appliedChanges.push(change.changeDescription);
+          }
+
+          // Create notification about the sync updates
+          await storage.createNotification({
+            userId,
+            type: "insight",
+            title: "Plan updated after sync",
+            message: `Your AI mentor reviewed your data and made adjustments: ${appliedChanges.join(", ")}`,
+            actionUrl: "/settings",
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: aiResponse,
+        appliedChanges: appliedChanges.length > 0 ? appliedChanges : undefined,
+        summary: parsedActions.messageSummary,
+      });
+    } catch (error) {
+      console.error("Error during AI sync:", error);
+      res.status(500).json({ error: "Failed to sync with AI" });
+    }
+  });
+
   // ==================== Data Export Routes ====================
 
   app.get("/api/export/json", isAuthenticated, async (req: Request, res: Response) => {
