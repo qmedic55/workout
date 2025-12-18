@@ -311,6 +311,11 @@ export function WorkoutLogger({ date, onWorkoutChange }: WorkoutLoggerProps) {
   // Fetch existing exercise logs for this date
   const { data: exerciseLogs = [], isLoading: loadingLogs } = useQuery<ExerciseLog[]>({
     queryKey: ["/api/exercise-logs", date],
+    queryFn: async () => {
+      const response = await fetch(`/api/exercise-logs/${date}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch exercise logs");
+      return response.json();
+    },
   });
 
   // Notify parent when workout status changes
