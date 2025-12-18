@@ -13,6 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
 import { User, Target, MessageSquare, Moon, Sun, Save, Download, FileJson, FileSpreadsheet } from "lucide-react";
+import { ProfileChangesHistory } from "@/components/profile-changes-history";
 import type { UserProfile } from "@shared/schema";
 
 const settingsSchema = z.object({
@@ -395,6 +396,8 @@ export default function Settings() {
               </p>
             </CardContent>
           </Card>
+
+          <ProfileChangesHistory limit={10} />
 
           <div className="flex justify-end">
             <Button type="submit" disabled={updateMutation.isPending} data-testid="button-save-settings">

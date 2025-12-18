@@ -11,6 +11,7 @@ import {
   educationalContent,
   foodDatabase,
   notifications,
+  profileChanges,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -28,6 +29,8 @@ import {
   type FoodDatabaseItem,
   type Notification,
   type InsertNotification,
+  type ProfileChange,
+  type InsertProfileChange,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -77,6 +80,13 @@ export interface IStorage {
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationAsRead(id: string, userId: string): Promise<boolean>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
+
+  // Profile Changes History
+  getProfileChanges(userId: string, limit?: number): Promise<ProfileChange[]>;
+  getProfileChangesByCategory(userId: string, category: string): Promise<ProfileChange[]>;
+  getProfileChangesByChatMessage(chatMessageId: string): Promise<ProfileChange[]>;
+  createProfileChange(change: InsertProfileChange): Promise<ProfileChange>;
+  getRecentChangeSummary(userId: string, days?: number): Promise<ProfileChange[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -295,6 +305,53 @@ export class DatabaseStorage implements IStorage {
       .update(notifications)
       .set({ isRead: true })
       .where(eq(notifications.userId, userId));
+  }
+
+  // Profile Changes History
+  async getProfileChanges(userId: string, limit: number = 50): Promise<ProfileChange[]> {
+    return db
+      .select()
+      .from(profileChanges)
+      .where(eq(profileChanges.userId, userId))
+      .orderBy(desc(profileChanges.createdAt))
+      .limit(limit);
+  }
+
+  async getProfileChangesByCategory(userId: string, category: string): Promise<ProfileChange[]> {
+    return db
+      .select()
+      .from(profileChanges)
+      .where(and(eq(profileChanges.userId, userId), eq(profileChanges.changeCategory, category)))
+      .orderBy(desc(profileChanges.createdAt));
+  }
+
+  async getProfileChangesByChatMessage(chatMessageId: string): Promise<ProfileChange[]> {
+    return db
+      .select()
+      .from(profileChanges)
+      .where(eq(profileChanges.chatMessageId, chatMessageId))
+      .orderBy(desc(profileChanges.createdAt));
+  }
+
+  async createProfileChange(change: InsertProfileChange): Promise<ProfileChange> {
+    const result = await db.insert(profileChanges).values(change).returning();
+    return result[0];
+  }
+
+  async getRecentChangeSummary(userId: string, days: number = 30): Promise<ProfileChange[]> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    return db
+      .select()
+      .from(profileChanges)
+      .where(
+        and(
+          eq(profileChanges.userId, userId),
+          gte(profileChanges.createdAt, startDate)
+        )
+      )
+      .orderBy(desc(profileChanges.createdAt));
   }
 }
 

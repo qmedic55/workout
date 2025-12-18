@@ -267,6 +267,36 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Profile changes history - tracks all AI-initiated and manual changes
+export const profileChanges = pgTable("profile_changes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  // Link to the chat message that triggered this change (null for manual changes)
+  chatMessageId: varchar("chat_message_id").references(() => chatMessages.id),
+
+  // What category of change was made
+  changeCategory: text("change_category").notNull(), // nutrition, training, sleep, phase, goals
+
+  // Specific field that was changed
+  fieldName: text("field_name").notNull(), // e.g., "targetCalories", "proteinGrams", "currentPhase"
+
+  // Human-readable description of the change
+  changeDescription: text("change_description").notNull(),
+
+  // Previous and new values (stored as strings for flexibility)
+  previousValue: text("previous_value"),
+  newValue: text("new_value"),
+
+  // AI reasoning for why this change was made
+  reasoning: text("reasoning"),
+
+  // Source of the change
+  source: text("source").notNull().default("ai_chat"), // ai_chat, manual, phase_transition, onboarding
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(userProfiles, {
@@ -282,6 +312,18 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   chatMessages: many(chatMessages),
   wearableConnections: many(wearableConnections),
   notifications: many(notifications),
+  profileChanges: many(profileChanges),
+}));
+
+export const profileChangesRelations = relations(profileChanges, ({ one }) => ({
+  user: one(users, {
+    fields: [profileChanges.userId],
+    references: [users.id],
+  }),
+  chatMessage: one(chatMessages, {
+    fields: [profileChanges.chatMessageId],
+    references: [chatMessages.id],
+  }),
 }));
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
@@ -368,6 +410,11 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   createdAt: true,
 });
 
+export const insertProfileChangeSchema = createInsertSchema(profileChanges).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -394,3 +441,6 @@ export type FoodDatabaseItem = typeof foodDatabase.$inferSelect;
 
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
+
+export type InsertProfileChange = z.infer<typeof insertProfileChangeSchema>;
+export type ProfileChange = typeof profileChanges.$inferSelect;

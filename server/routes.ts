@@ -6,6 +6,7 @@ import { generateInsights } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { searchUSDAFoods } from "./foodApi";
 import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from "./aiRecommendations";
+import { parseAIResponseForActions, prepareProfileUpdates, formatChangeNotification } from "./aiActionParser";
 import { format, subDays, parseISO } from "date-fns";
 import {
   insertUserProfileSchema,
@@ -456,7 +457,51 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         contextType: "coaching",
       });
 
-      res.json(assistantMessage);
+      // Parse AI response for actionable changes and auto-apply them
+      let appliedChanges: string[] = [];
+      if (profile) {
+        try {
+          const parsedActions = await parseAIResponseForActions(aiResponse, profile);
+
+          if (parsedActions.hasChanges && parsedActions.changes.length > 0) {
+            // Prepare and apply profile updates
+            const { profileUpdates, changeRecords } = prepareProfileUpdates(
+              parsedActions.changes,
+              profile,
+              assistantMessage.id
+            );
+
+            // Apply updates to profile
+            if (Object.keys(profileUpdates).length > 0) {
+              await storage.updateProfile(getUserId(req), profileUpdates);
+
+              // Log all changes to history
+              for (const change of changeRecords) {
+                await storage.createProfileChange(change);
+                appliedChanges.push(change.changeDescription);
+              }
+
+              // Create a notification about the changes
+              await storage.createNotification({
+                userId: getUserId(req),
+                type: "insight",
+                title: "Your plan has been updated",
+                message: `Based on your conversation: ${appliedChanges.join(", ")}`,
+                actionUrl: "/settings",
+              });
+            }
+          }
+        } catch (parseError) {
+          console.error("Error parsing AI actions (non-fatal):", parseError);
+          // Continue - don't fail the chat just because parsing failed
+        }
+      }
+
+      // Return response with metadata about changes
+      res.json({
+        ...assistantMessage,
+        appliedChanges: appliedChanges.length > 0 ? appliedChanges : undefined,
+      });
     } catch (error) {
       console.error("Error in chat:", error);
       res.status(500).json({ error: "Failed to process message" });
@@ -812,6 +857,75 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error transitioning phase:", error);
       res.status(500).json({ error: "Failed to transition phase" });
+    }
+  });
+
+  // ==================== Profile Changes History Routes ====================
+
+  // Get all profile changes (history)
+  app.get("/api/profile-changes", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { limit, category } = req.query;
+      const limitNum = limit ? parseInt(limit as string, 10) : 50;
+
+      let changes;
+      if (category && typeof category === "string") {
+        changes = await storage.getProfileChangesByCategory(getUserId(req), category);
+      } else {
+        changes = await storage.getProfileChanges(getUserId(req), limitNum);
+      }
+
+      res.json(changes);
+    } catch (error) {
+      console.error("Error fetching profile changes:", error);
+      res.status(500).json({ error: "Failed to fetch profile changes" });
+    }
+  });
+
+  // Get recent changes summary (for dashboard/settings)
+  app.get("/api/profile-changes/summary", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { days } = req.query;
+      const daysNum = days ? parseInt(days as string, 10) : 30;
+
+      const changes = await storage.getRecentChangeSummary(getUserId(req), daysNum);
+
+      // Group changes by category for summary
+      const summary: Record<string, { count: number; latestChange: string; changes: typeof changes }> = {};
+
+      for (const change of changes) {
+        if (!summary[change.changeCategory]) {
+          summary[change.changeCategory] = {
+            count: 0,
+            latestChange: change.createdAt?.toISOString() || "",
+            changes: [],
+          };
+        }
+        summary[change.changeCategory].count++;
+        summary[change.changeCategory].changes.push(change);
+      }
+
+      res.json({
+        totalChanges: changes.length,
+        periodDays: daysNum,
+        byCategory: summary,
+        recentChanges: changes.slice(0, 10), // Last 10 changes
+      });
+    } catch (error) {
+      console.error("Error fetching profile changes summary:", error);
+      res.status(500).json({ error: "Failed to fetch profile changes summary" });
+    }
+  });
+
+  // Get changes linked to a specific chat message
+  app.get("/api/profile-changes/chat/:chatMessageId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { chatMessageId } = req.params;
+      const changes = await storage.getProfileChangesByChatMessage(chatMessageId);
+      res.json(changes);
+    } catch (error) {
+      console.error("Error fetching chat-linked changes:", error);
+      res.status(500).json({ error: "Failed to fetch chat-linked changes" });
     }
   });
 
