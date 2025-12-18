@@ -5,9 +5,7 @@ const config: CapacitorConfig = {
   appName: 'VitalPath',
   webDir: 'dist/public',
   server: {
-    // For development, you can use your local server
-    // url: 'http://localhost:5000',
-    // cleartext: true,
+    url: 'https://health-mentor-ai--ikugelman.replit.app',
     androidScheme: 'https'
   },
   plugins: {

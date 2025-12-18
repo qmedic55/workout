@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Activity, Brain, Heart, Sparkles } from "lucide-react";
 import { MobileNav } from "@/components/mobile-nav";
+import { useAppleAuth } from "@/hooks/use-apple-auth";
 
 import Dashboard from "@/pages/dashboard";
 import Chat from "@/pages/chat";
@@ -48,21 +49,25 @@ function Router() {
 }
 
 function LandingPage() {
+  const { signInWithApple, isLoading: appleLoading, isAppleSignInAvailable } = useAppleAuth();
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="flex items-center justify-between gap-4 px-6 h-16 border-b">
+      <header className="flex items-center justify-between gap-4 px-6 h-16 border-b safe-area-inset-top">
         <div className="flex items-center gap-2">
           <Activity className="h-6 w-6 text-primary" />
           <span className="font-semibold text-lg">VitalPath</span>
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button asChild data-testid="button-login">
-            <a href="/api/login">Sign In</a>
-          </Button>
+          {!isAppleSignInAvailable && (
+            <Button asChild data-testid="button-login">
+              <a href="/api/login">Sign In</a>
+            </Button>
+          )}
         </div>
       </header>
-      
+
       <main className="flex-1 flex items-center justify-center p-6">
         <div className="max-w-4xl w-full space-y-12 text-center">
           <div className="space-y-4">
@@ -70,12 +75,33 @@ function LandingPage() {
               Your Holistic Health Journey Starts Here
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              AI-powered coaching for body recomposition and metabolic recovery, 
+              AI-powered coaching for body recomposition and metabolic recovery,
               designed specifically for adults 40 and beyond.
             </p>
-            <Button size="lg" asChild className="mt-4" data-testid="button-get-started">
-              <a href="/api/login">Get Started Free</a>
-            </Button>
+            <div className="flex flex-col items-center gap-3 mt-6">
+              {isAppleSignInAvailable ? (
+                <Button
+                  size="lg"
+                  onClick={signInWithApple}
+                  disabled={appleLoading}
+                  className="bg-black hover:bg-gray-800 text-white w-full max-w-xs"
+                  data-testid="button-apple-signin"
+                >
+                  {appleLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  ) : (
+                    <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                    </svg>
+                  )}
+                  Sign in with Apple
+                </Button>
+              ) : (
+                <Button size="lg" asChild className="w-full max-w-xs" data-testid="button-get-started">
+                  <a href="/api/login">Get Started Free</a>
+                </Button>
+              )}
+            </div>
           </div>
           
           <div className="grid gap-6 md:grid-cols-3">
