@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { SignInWithApple, SignInWithAppleOptions, SignInWithAppleResponse } from "@capacitor-community/apple-sign-in";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,7 +22,10 @@ export function useAppleAuth() {
     setIsLoading(true);
 
     try {
-      const options: SignInWithAppleOptions = {
+      // Dynamically import the plugin only on native iOS
+      const { SignInWithApple } = await import("@capacitor-community/apple-sign-in");
+
+      const options = {
         clientId: "com.vitalpath.app",
         redirectURI: "https://health-mentor-ai--ikugelman.replit.app/api/auth/apple/callback",
         scopes: "email name",
@@ -31,7 +33,7 @@ export function useAppleAuth() {
         nonce: crypto.randomUUID(),
       };
 
-      const result: SignInWithAppleResponse = await SignInWithApple.authorize(options);
+      const result = await SignInWithApple.authorize(options);
 
       // Send the authorization to the server
       const response = await apiRequest("POST", "/api/auth/apple", {
