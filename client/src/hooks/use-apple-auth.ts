@@ -23,7 +23,10 @@ export function useAppleAuth() {
 
     try {
       // Dynamically import the plugin only on native iOS
-      const { SignInWithApple } = await import("@capacitor-community/apple-sign-in");
+      // The module path is constructed to prevent Vite from analyzing it
+      const modulePath = "@capacitor-community/apple-sign-in";
+      const module = await import(/* @vite-ignore */ modulePath);
+      const SignInWithApple = module.SignInWithApple;
 
       const options = {
         clientId: "com.vitalpath.app",
