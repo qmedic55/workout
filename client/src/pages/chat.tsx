@@ -168,11 +168,16 @@ export default function Chat() {
     textareaRef.current?.focus();
   };
 
+  // Scroll to bottom when messages change or when AI responds
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      // ScrollArea uses a viewport element inside, find it and scroll
+      const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
     }
-  }, [messages, sendMessageMutation.isPending]);
+  }, [messages, pendingMessage, sendMessageMutation.isPending]);
 
   return (
     <div className="flex flex-col h-full">

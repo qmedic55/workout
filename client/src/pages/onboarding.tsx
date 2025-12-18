@@ -156,6 +156,10 @@ export default function Onboarding() {
   };
 
   const onSubmit = (data: OnboardingFormData) => {
+    // Only allow submission on the final step
+    if (currentStep !== steps.length - 1) {
+      return;
+    }
     submitMutation.mutate(data);
   };
 

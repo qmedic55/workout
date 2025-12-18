@@ -1,14 +1,26 @@
 import UIKit
-import Capacitor
+import SwiftUI
 
-@UIApplicationMain
+@main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        
+        // Set up your root view controller
+        window = UIWindow(frame: UIScreen.main.bounds)
+        window?.rootViewController = createRootViewController()
+        window?.makeKeyAndVisible()
+        
         return true
+    }
+    
+    private func createRootViewController() -> UIViewController {
+        // VitalPath uses SwiftUI for the entire app
+        let contentView = ContentView()
+        return UIHostingController(rootView: contentView)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -34,16 +46,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Called when the app was launched with a url. Feel free to add additional processing here,
-        // but if you want the App API to support tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        // Handle custom URL schemes here
+        // Example: myapp://some/path
+        print("App opened with URL: \(url)")
+        return true
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        // Called when the app was launched with an activity, including Universal Links.
-        // Feel free to add additional processing here, but if you want the App API to support
-        // tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+        // Handle Universal Links here
+        if userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+           let url = userActivity.webpageURL {
+            print("App opened with Universal Link: \(url)")
+            // Handle navigation based on the URL
+        }
+        return true
     }
 
 }
