@@ -102,6 +102,8 @@ export default function Nutrition() {
 
   const { data: profile } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
+    staleTime: 30000, // Consider stale after 30 seconds to pick up AI changes
+    refetchOnMount: "always", // Always refetch when navigating to this page
   });
 
   const { data: todayLog } = useQuery<DailyLog>({

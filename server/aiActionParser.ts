@@ -73,12 +73,31 @@ Your job is to identify when the AI mentor is recommending specific, quantifiabl
 - Training phase (currentPhase: "recovery", "recomp", or "cutting")
 - Target weight (targetWeightKg)
 
-Only extract changes that the AI is definitively recommending - not suggestions to "consider" or hypotheticals.
+IMPORTANT: Extract ANY specific numerical target the AI mentions as a recommendation, even if phrased conversationally.
 Look for phrases like:
 - "I'm adjusting your calories to..."
 - "Let's increase your protein to..."
 - "I recommend changing your phase to..."
 - "Your new target should be..."
+- "you should aim for X calories"
+- "I suggest X calories per day"
+- "target X calories"
+- "let's set your calories at X"
+- "X calories would be appropriate"
+- "a target of X calories"
+- "aim for around X calories"
+- "your daily intake should be X"
+- Any mention of a SPECIFIC number followed by "calories", "kcal", "protein", "carbs", "fat", "steps", etc.
+
+DO extract changes when:
+- The AI gives a specific number as a target or recommendation
+- The AI says "should", "recommend", "suggest", "aim for", "target", "set to", "adjust to"
+- The AI provides a new calorie/macro number that differs from the current profile
+
+DO NOT extract changes when:
+- The AI is just describing what the user currently eats
+- The AI mentions numbers in a hypothetical or educational context without recommending them
+- The AI asks a question about what the user wants
 
 Return a JSON object with this structure:
 {
@@ -87,7 +106,7 @@ Return a JSON object with this structure:
     {
       "category": "nutrition" | "training" | "sleep" | "phase" | "goals" | "general",
       "field": "the field name (e.g., targetCalories, proteinGrams)",
-      "newValue": "the recommended value",
+      "newValue": "the recommended value (NUMBER ONLY, no units)",
       "description": "Human-readable description of the change",
       "reasoning": "Why this change is being made"
     }

@@ -688,7 +688,9 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       let appliedChanges: string[] = [];
       if (profile) {
         try {
+          console.log("[AI Parser] Parsing AI response for actions...");
           const parsedActions = await parseAIResponseForActions(aiResponse, profile);
+          console.log("[AI Parser] Parse result:", JSON.stringify(parsedActions, null, 2));
 
           if (parsedActions.hasChanges && parsedActions.changes.length > 0) {
             // Prepare and apply profile updates
@@ -697,10 +699,12 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
               profile,
               assistantMessage.id
             );
+            console.log("[AI Parser] Profile updates to apply:", JSON.stringify(profileUpdates, null, 2));
 
             // Apply updates to profile
             if (Object.keys(profileUpdates).length > 0) {
-              await storage.updateProfile(getUserId(req), profileUpdates);
+              const updatedProfile = await storage.updateProfile(getUserId(req), profileUpdates);
+              console.log("[AI Parser] Profile updated successfully. New targetCalories:", updatedProfile?.targetCalories);
 
               // Log all changes to history
               for (const change of changeRecords) {
