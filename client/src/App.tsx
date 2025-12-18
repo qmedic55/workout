@@ -23,6 +23,7 @@ import Workouts from "@/pages/workouts";
 import Devices from "@/pages/devices";
 import Learn from "@/pages/learn";
 import Settings from "@/pages/settings";
+import Profile from "@/pages/profile";
 import Playground from "@/pages/playground";
 import NotFound from "@/pages/not-found";
 
@@ -39,6 +40,7 @@ function Router() {
       <Route path="/devices" component={Devices} />
       <Route path="/learn" component={Learn} />
       <Route path="/settings" component={Settings} />
+      <Route path="/profile" component={Profile} />
       <Route path="/playground" component={Playground} />
       <Route component={NotFound} />
     </Switch>

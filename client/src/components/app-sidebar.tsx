@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   MessageCircle,
@@ -11,6 +12,8 @@ import {
   ClipboardList,
   Blocks,
 } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import type { UserProfile } from "@shared/schema";
 import {
   Sidebar,
   SidebarContent,
@@ -90,6 +93,16 @@ const resourceItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { data: profile } = useQuery<UserProfile>({
+    queryKey: ["/api/profile"],
+  });
+
+  const initials = profile
+    ? `${profile.firstName?.[0] || ""}${profile.lastName?.[0] || ""}`.toUpperCase() || "VP"
+    : "VP";
+  const displayName = profile
+    ? [profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Your Profile"
+    : "Your Profile";
 
   return (
     <Sidebar>
@@ -175,10 +188,28 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
-        <div className="text-xs text-muted-foreground text-center">
-          Your holistic health journey
-        </div>
+      <SidebarFooter className="p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={location === "/profile"}
+              className="h-auto py-2"
+            >
+              <Link href="/profile" data-testid="link-profile">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col items-start">
+                  <span className="text-sm font-medium">{displayName}</span>
+                  <span className="text-xs text-muted-foreground">View Profile</span>
+                </div>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

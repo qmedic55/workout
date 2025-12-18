@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, MessageSquare, Utensils, Dumbbell, BarChart3 } from "lucide-react";
+import { Home, MessageSquare, Utensils, Dumbbell, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -7,7 +7,7 @@ const navItems = [
   { href: "/nutrition", icon: Utensils, label: "Food" },
   { href: "/chat", icon: MessageSquare, label: "Coach" },
   { href: "/workouts", icon: Dumbbell, label: "Train" },
-  { href: "/progress", icon: BarChart3, label: "Progress" },
+  { href: "/profile", icon: User, label: "Profile" },
 ];
 
 export function MobileNav() {
