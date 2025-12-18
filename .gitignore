@@ -4,3 +4,17 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+.env
+
+# Capacitor
+ios/App/App/public
+ios/App/Pods
+ios/App/build
+ios/DerivedData
+android/app/src/main/assets/public
+android/app/build
+android/.gradle
+android/build
+*.xcuserstate
+*.xcworkspace/xcuserdata
+*.pbxuser
