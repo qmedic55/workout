@@ -629,18 +629,46 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         contextType: "question",
       });
 
-      // Get context for AI
-      const profile = await storage.getProfile(getUserId(req));
-      const assessment = await storage.getOnboardingAssessment(getUserId(req));
-      const today = format(new Date(), "yyyy-MM-dd");
-      const recentLogs = await storage.getDailyLogs(getUserId(req));
-      const messageHistory = await storage.getChatMessages(getUserId(req), 20);
+      // Get context for AI - fetch ALL user data for comprehensive awareness
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+      const assessment = await storage.getOnboardingAssessment(userId);
 
-      // Generate AI response
+      // Get last 14 days of logs for trend analysis
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 14), "yyyy-MM-dd");
+      const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
+
+      // Get food entries for last 7 days
+      const foodStartDate = format(subDays(new Date(), 7), "yyyy-MM-dd");
+      const allFoodEntries: any[] = [];
+      for (let i = 0; i < 7; i++) {
+        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
+        const dayEntries = await storage.getFoodEntries(userId, dateStr);
+        allFoodEntries.push(...dayEntries);
+      }
+
+      // Get exercise logs for last 14 days
+      const allExerciseLogs: any[] = [];
+      for (let i = 0; i < 14; i++) {
+        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
+        const dayLogs = await storage.getExerciseLogs(userId, dateStr);
+        allExerciseLogs.push(...dayLogs);
+      }
+
+      const messageHistory = await storage.getChatMessages(userId, 20);
+
+      // Generate AI response with full context
       const aiResponse = await generateMentorResponse(
         content,
         messageHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-        { profile, recentLogs: recentLogs.slice(0, 7), assessment }
+        {
+          profile,
+          recentLogs,
+          assessment,
+          foodEntries: allFoodEntries,
+          exerciseLogs: allExerciseLogs,
+        }
       );
 
       // Save AI response

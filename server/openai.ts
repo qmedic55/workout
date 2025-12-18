@@ -1,19 +1,21 @@
 import OpenAI from "openai";
-import type { UserProfile, DailyLog, OnboardingAssessment } from "@shared/schema";
+import type { UserProfile, DailyLog, OnboardingAssessment, FoodEntry, ExerciseLog } from "@shared/schema";
 
 // Using user's own OpenAI API key
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
 });
 
 interface ChatContext {
   profile?: UserProfile;
   recentLogs?: DailyLog[];
   assessment?: OnboardingAssessment;
+  foodEntries?: FoodEntry[];
+  exerciseLogs?: ExerciseLog[];
 }
 
 function buildSystemPrompt(context: ChatContext): string {
-  const { profile, recentLogs, assessment } = context;
+  const { profile, recentLogs, assessment, foodEntries, exerciseLogs } = context;
   
   let toneInstruction = "";
   switch (profile?.coachingTone) {
@@ -66,18 +68,141 @@ ASSESSMENT DATA:
   }
 
   if (recentLogs && recentLogs.length > 0) {
-    const lastLog = recentLogs[0];
+    // Calculate averages for trends
+    const logsWithWeight = recentLogs.filter(l => l.weightKg);
+    const logsWithCalories = recentLogs.filter(l => l.caloriesConsumed);
+    const logsWithProtein = recentLogs.filter(l => l.proteinGrams);
+    const logsWithSteps = recentLogs.filter(l => l.steps);
+    const logsWithSleep = recentLogs.filter(l => l.sleepHours);
+    const logsWithEnergy = recentLogs.filter(l => l.energyLevel);
+    const logsWithStress = recentLogs.filter(l => l.stressLevel);
+
+    const avgCalories = logsWithCalories.length > 0
+      ? Math.round(logsWithCalories.reduce((sum, l) => sum + (l.caloriesConsumed || 0), 0) / logsWithCalories.length)
+      : null;
+    const avgProtein = logsWithProtein.length > 0
+      ? Math.round(logsWithProtein.reduce((sum, l) => sum + (l.proteinGrams || 0), 0) / logsWithProtein.length)
+      : null;
+    const avgSteps = logsWithSteps.length > 0
+      ? Math.round(logsWithSteps.reduce((sum, l) => sum + (l.steps || 0), 0) / logsWithSteps.length)
+      : null;
+    const avgSleep = logsWithSleep.length > 0
+      ? (logsWithSleep.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / logsWithSleep.length).toFixed(1)
+      : null;
+    const avgEnergy = logsWithEnergy.length > 0
+      ? (logsWithEnergy.reduce((sum, l) => sum + (l.energyLevel || 0), 0) / logsWithEnergy.length).toFixed(1)
+      : null;
+    const avgStress = logsWithStress.length > 0
+      ? (logsWithStress.reduce((sum, l) => sum + (l.stressLevel || 0), 0) / logsWithStress.length).toFixed(1)
+      : null;
+
+    // Weight trend
+    let weightTrend = "";
+    if (logsWithWeight.length >= 2) {
+      const firstWeight = logsWithWeight[logsWithWeight.length - 1].weightKg!;
+      const lastWeight = logsWithWeight[0].weightKg!;
+      const diff = lastWeight - firstWeight;
+      weightTrend = diff > 0 ? `+${diff.toFixed(1)} kg` : `${diff.toFixed(1)} kg`;
+    }
+
     contextInfo += `
-RECENT LOG (${lastLog.logDate}):
-- Weight: ${lastLog.weightKg ? `${lastLog.weightKg} kg` : "Not recorded"}
-- Calories: ${lastLog.caloriesConsumed || 0} kcal
-- Protein: ${lastLog.proteinGrams || 0}g
-- Steps: ${lastLog.steps || 0}
-- Sleep: ${lastLog.sleepHours ? `${lastLog.sleepHours} hours` : "Not recorded"}
-- Energy: ${lastLog.energyLevel || "N/A"}/10
-- Stress: ${lastLog.stressLevel || "N/A"}/10
-- Mood: ${lastLog.moodRating || "N/A"}/10
+TRACKING SUMMARY (Last ${recentLogs.length} days):
+- Days logged: ${recentLogs.length}
+- Weight trend: ${weightTrend || "Not enough data"}
+- Avg daily calories: ${avgCalories ? `${avgCalories} kcal` : "Not tracked"}${profile?.targetCalories ? ` (target: ${profile.targetCalories})` : ""}
+- Avg daily protein: ${avgProtein ? `${avgProtein}g` : "Not tracked"}${profile?.proteinGrams ? ` (target: ${profile.proteinGrams}g)` : ""}
+- Avg daily steps: ${avgSteps ? avgSteps.toLocaleString() : "Not tracked"}${profile?.dailyStepsTarget ? ` (target: ${profile.dailyStepsTarget.toLocaleString()})` : ""}
+- Avg sleep: ${avgSleep ? `${avgSleep} hours` : "Not tracked"}
+- Avg energy: ${avgEnergy ? `${avgEnergy}/10` : "Not tracked"}
+- Avg stress: ${avgStress ? `${avgStress}/10` : "Not tracked"}
+
+DAILY LOG HISTORY (most recent first):
 `;
+    // Show each day's data
+    for (const log of recentLogs.slice(0, 14)) {
+      contextInfo += `
+[${log.logDate}]${log.weightKg ? ` Weight: ${log.weightKg}kg` : ""}${log.caloriesConsumed ? ` | Cal: ${log.caloriesConsumed}` : ""}${log.proteinGrams ? ` | Pro: ${log.proteinGrams}g` : ""}${log.steps ? ` | Steps: ${log.steps.toLocaleString()}` : ""}${log.sleepHours ? ` | Sleep: ${log.sleepHours}h` : ""}${log.energyLevel ? ` | Energy: ${log.energyLevel}/10` : ""}${log.stressLevel ? ` | Stress: ${log.stressLevel}/10` : ""}${log.moodRating ? ` | Mood: ${log.moodRating}/10` : ""}${log.workoutCompleted ? ` | ✓ Workout` : ""}${log.notes ? ` | Notes: "${log.notes}"` : ""}`;
+    }
+  }
+
+  // Food entries section
+  if (foodEntries && foodEntries.length > 0) {
+    // Group food entries by date
+    const entriesByDate = new Map<string, FoodEntry[]>();
+    for (const entry of foodEntries) {
+      const dateKey = entry.logDate;
+      if (!entriesByDate.has(dateKey)) {
+        entriesByDate.set(dateKey, []);
+      }
+      entriesByDate.get(dateKey)!.push(entry);
+    }
+
+    contextInfo += `
+
+FOOD LOG (recent meals):`;
+    // Show food for last 3 days with entries
+    const sortedDates = Array.from(entriesByDate.keys()).sort().reverse().slice(0, 3);
+    for (const date of sortedDates) {
+      const dayEntries = entriesByDate.get(date)!;
+      const totalCal = dayEntries.reduce((sum, e) => sum + (e.calories || 0), 0);
+      const totalPro = dayEntries.reduce((sum, e) => sum + (e.proteinGrams || 0), 0);
+
+      contextInfo += `
+[${date}] Total: ${totalCal} cal, ${Math.round(totalPro)}g protein`;
+
+      // Group by meal type
+      const byMeal = new Map<string, FoodEntry[]>();
+      for (const e of dayEntries) {
+        const meal = e.mealType || "other";
+        if (!byMeal.has(meal)) byMeal.set(meal, []);
+        byMeal.get(meal)!.push(e);
+      }
+
+      byMeal.forEach((items, meal) => {
+        const mealItems = items.map((i: FoodEntry) => `${i.foodName}${i.calories ? ` (${i.calories} cal)` : ""}`).join(", ");
+        contextInfo += `
+  ${meal.charAt(0).toUpperCase() + meal.slice(1)}: ${mealItems}`;
+      });
+    }
+  }
+
+  // Exercise logs section
+  if (exerciseLogs && exerciseLogs.length > 0) {
+    // Group exercise logs by date
+    const exercisesByDate = new Map<string, ExerciseLog[]>();
+    for (const log of exerciseLogs) {
+      const dateKey = log.logDate;
+      if (!exercisesByDate.has(dateKey)) {
+        exercisesByDate.set(dateKey, []);
+      }
+      exercisesByDate.get(dateKey)!.push(log);
+    }
+
+    contextInfo += `
+
+WORKOUT LOG (recent workouts):`;
+    const sortedExDates = Array.from(exercisesByDate.keys()).sort().reverse().slice(0, 5);
+    for (const date of sortedExDates) {
+      const dayExercises = exercisesByDate.get(date)!.filter(e => !e.skipped);
+      if (dayExercises.length === 0) continue;
+
+      contextInfo += `
+[${date}] Exercises completed:`;
+      for (const ex of dayExercises) {
+        const setDetails = ex.setDetails as { reps: number; weightKg?: number }[] | null;
+        let setsInfo = "";
+        if (setDetails && setDetails.length > 0) {
+          const completedSets = setDetails.filter(s => s.reps > 0);
+          if (completedSets.length > 0) {
+            const weights = completedSets.filter(s => s.weightKg).map(s => s.weightKg);
+            const maxWeight = weights.length > 0 ? Math.max(...weights as number[]) : null;
+            setsInfo = ` - ${completedSets.length} sets${maxWeight ? `, up to ${maxWeight}kg` : ""}`;
+          }
+        }
+        contextInfo += `
+  • ${ex.exerciseName}${setsInfo}`;
+      }
+    }
   }
 
   // Add phase-specific workout guidance
