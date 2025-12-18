@@ -29,6 +29,11 @@
 		03B395912EF41018008B751E /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B395902EF41018008B751E /* ProfileView.swift */; };
 		03B395932EF4104D008B751E /* BUILD_STATUS.md in Resources */ = {isa = PBXBuildFile; fileRef = 03B395922EF4104D008B751E /* BUILD_STATUS.md */; };
 		03B395952EF4107A008B751E /* GETTING_STARTED.md in Resources */ = {isa = PBXBuildFile; fileRef = 03B395942EF4107A008B751E /* GETTING_STARTED.md */; };
+		03B395972EF41375008B751E /* APP_STORE_GUIDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 03B395962EF41375008B751E /* APP_STORE_GUIDE.md */; };
+		03B395992EF4138F008B751E /* PRIVACY_POLICY.md in Resources */ = {isa = PBXBuildFile; fileRef = 03B395982EF4138F008B751E /* PRIVACY_POLICY.md */; };
+		03B3959B2EF413C9008B751E /* SUBMISSION_CHECKLIST.md in Resources */ = {isa = PBXBuildFile; fileRef = 03B3959A2EF413C9008B751E /* SUBMISSION_CHECKLIST.md */; };
+		03B3959D2EF413E3008B751E /* FIX_BINDING_ERROR.md in Resources */ = {isa = PBXBuildFile; fileRef = 03B3959C2EF413E3008B751E /* FIX_BINDING_ERROR.md */; };
+		03B3959F2EF413F4008B751E /* BindingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B3959E2EF413F4008B751E /* BindingHelpers.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -62,6 +67,11 @@
 		03B395902EF41018008B751E /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		03B395922EF4104D008B751E /* BUILD_STATUS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_STATUS.md; sourceTree = "<group>"; };
 		03B395942EF4107A008B751E /* GETTING_STARTED.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = GETTING_STARTED.md; sourceTree = "<group>"; };
+		03B395962EF41375008B751E /* APP_STORE_GUIDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = APP_STORE_GUIDE.md; sourceTree = "<group>"; };
+		03B395982EF4138F008B751E /* PRIVACY_POLICY.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PRIVACY_POLICY.md; sourceTree = "<group>"; };
+		03B3959A2EF413C9008B751E /* SUBMISSION_CHECKLIST.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SUBMISSION_CHECKLIST.md; sourceTree = "<group>"; };
+		03B3959C2EF413E3008B751E /* FIX_BINDING_ERROR.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = FIX_BINDING_ERROR.md; sourceTree = "<group>"; };
+		03B3959E2EF413F4008B751E /* BindingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BindingHelpers.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -136,6 +146,11 @@
 				03B395902EF41018008B751E /* ProfileView.swift */,
 				03B395922EF4104D008B751E /* BUILD_STATUS.md */,
 				03B395942EF4107A008B751E /* GETTING_STARTED.md */,
+				03B395962EF41375008B751E /* APP_STORE_GUIDE.md */,
+				03B395982EF4138F008B751E /* PRIVACY_POLICY.md */,
+				03B3959A2EF413C9008B751E /* SUBMISSION_CHECKLIST.md */,
+				03B3959C2EF413E3008B751E /* FIX_BINDING_ERROR.md */,
+				03B3959E2EF413F4008B751E /* BindingHelpers.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -206,12 +221,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
+				03B3959D2EF413E3008B751E /* FIX_BINDING_ERROR.md in Resources */,
 				50B271D11FEDC1A000F3C39B /* public in Resources */,
+				03B395992EF4138F008B751E /* PRIVACY_POLICY.md in Resources */,
 				03B395952EF4107A008B751E /* GETTING_STARTED.md in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				03B3956F2EF40DB2008B751E /* MIGRATION_GUIDE.md in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
+				03B395972EF41375008B751E /* APP_STORE_GUIDE.md in Resources */,
+				03B3959B2EF413C9008B751E /* SUBMISSION_CHECKLIST.md in Resources */,
 				03B395752EF40E15008B751E /* CAPACITOR_TO_NATIVE_REFERENCE.md in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
 				03B395772EF40E41008B751E /* QUICK_START.md in Resources */,
@@ -227,6 +246,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				03B395812EF40F74008B751E /* AuthViewModel.swift in Sources */,
+				03B3959F2EF413F4008B751E /* BindingHelpers.swift in Sources */,
 				03B395732EF40DE3008B751E /* StorageService.swift in Sources */,
 				03B3957B2EF40F41008B751E /* APIClient.swift in Sources */,
 				03B395892EF40FF8008B751E /* DashboardView.swift in Sources */,

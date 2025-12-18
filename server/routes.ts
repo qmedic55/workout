@@ -7,6 +7,7 @@ import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransiti
 import { searchUSDAFoods } from "./foodApi";
 import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from "./aiRecommendations";
 import { parseAIResponseForActions, prepareProfileUpdates, formatChangeNotification } from "./aiActionParser";
+import { sendProactiveNotifications, getDailyProgressSummary, generateAfternoonReminders } from "./proactiveNotifications";
 import { format, subDays, parseISO } from "date-fns";
 import {
   insertUserProfileSchema,
@@ -658,6 +659,9 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       const messageHistory = await storage.getChatMessages(userId, 20);
 
+      // Get real-time daily progress summary for the AI
+      const dailyProgressSummary = await getDailyProgressSummary(userId);
+
       // Generate AI response with full context
       const aiResponse = await generateMentorResponse(
         content,
@@ -668,6 +672,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           assessment,
           foodEntries: allFoodEntries,
           exerciseLogs: allExerciseLogs,
+          dailyProgressSummary,
         }
       );
 
@@ -1050,6 +1055,34 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error marking all notifications as read:", error);
       res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // Trigger proactive check-in notifications based on time of day
+  app.post("/api/notifications/check-in", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { timeOfDay } = req.body;
+      if (!timeOfDay || !["morning", "afternoon", "evening"].includes(timeOfDay)) {
+        res.status(400).json({ error: "Invalid timeOfDay. Must be: morning, afternoon, or evening" });
+        return;
+      }
+
+      await sendProactiveNotifications(getUserId(req), timeOfDay);
+      res.json({ success: true, message: `${timeOfDay} check-in notifications sent` });
+    } catch (error) {
+      console.error("Error sending check-in notifications:", error);
+      res.status(500).json({ error: "Failed to send check-in notifications" });
+    }
+  });
+
+  // Get real-time daily progress reminders (for display without storing)
+  app.get("/api/notifications/reminders", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const reminders = await generateAfternoonReminders(getUserId(req));
+      res.json(reminders);
+    } catch (error) {
+      console.error("Error generating reminders:", error);
+      res.status(500).json({ error: "Failed to generate reminders" });
     }
   });
 

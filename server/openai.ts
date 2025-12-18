@@ -12,10 +12,11 @@ interface ChatContext {
   assessment?: OnboardingAssessment;
   foodEntries?: FoodEntry[];
   exerciseLogs?: ExerciseLog[];
+  dailyProgressSummary?: string;
 }
 
 function buildSystemPrompt(context: ChatContext): string {
-  const { profile, recentLogs, assessment, foodEntries, exerciseLogs } = context;
+  const { profile, recentLogs, assessment, foodEntries, exerciseLogs, dailyProgressSummary } = context;
   
   let toneInstruction = "";
   switch (profile?.coachingTone) {
@@ -48,6 +49,11 @@ USER PROFILE:
 - Protein Target: ${profile.proteinGrams ? `${profile.proteinGrams}g` : "Not set"}
 - Daily Steps Target: ${profile.dailyStepsTarget || 8000}
 `;
+  }
+
+  // Add real-time daily progress at the top (most important for immediate coaching)
+  if (dailyProgressSummary) {
+    contextInfo += dailyProgressSummary;
   }
 
   if (assessment) {
