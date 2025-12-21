@@ -1,4 +1,5 @@
 import { Switch, Route } from "wouter";
+import { lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -9,42 +10,54 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Activity, Brain, Heart, Sparkles } from "lucide-react";
 import { MobileNav } from "@/components/mobile-nav";
 import { useAppleAuth } from "@/hooks/use-apple-auth";
 
-import Dashboard from "@/pages/dashboard";
-import Chat from "@/pages/chat";
-import Onboarding from "@/pages/onboarding";
-import DailyLog from "@/pages/daily-log";
-import Progress from "@/pages/progress";
-import Nutrition from "@/pages/nutrition";
-import Workouts from "@/pages/workouts";
-import Devices from "@/pages/devices";
-import Learn from "@/pages/learn";
-import Settings from "@/pages/settings";
-import Profile from "@/pages/profile";
-import Playground from "@/pages/playground";
-import NotFound from "@/pages/not-found";
+// Lazy load all page components for better initial bundle size
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Chat = lazy(() => import("@/pages/chat"));
+const Onboarding = lazy(() => import("@/pages/onboarding"));
+const DailyLog = lazy(() => import("@/pages/daily-log"));
+const Progress = lazy(() => import("@/pages/progress"));
+const Nutrition = lazy(() => import("@/pages/nutrition"));
+const Workouts = lazy(() => import("@/pages/workouts"));
+const Devices = lazy(() => import("@/pages/devices"));
+const Learn = lazy(() => import("@/pages/learn"));
+const Settings = lazy(() => import("@/pages/settings"));
+const Profile = lazy(() => import("@/pages/profile"));
+const Playground = lazy(() => import("@/pages/playground"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+// Route loading fallback
+function RouteLoader() {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[200px]">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/chat" component={Chat} />
-      <Route path="/onboarding" component={Onboarding} />
-      <Route path="/daily-log" component={DailyLog} />
-      <Route path="/progress" component={Progress} />
-      <Route path="/nutrition" component={Nutrition} />
-      <Route path="/workouts" component={Workouts} />
-      <Route path="/devices" component={Devices} />
-      <Route path="/learn" component={Learn} />
-      <Route path="/settings" component={Settings} />
-      <Route path="/profile" component={Profile} />
-      <Route path="/playground" component={Playground} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<RouteLoader />}>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/chat" component={Chat} />
+        <Route path="/onboarding" component={Onboarding} />
+        <Route path="/daily-log" component={DailyLog} />
+        <Route path="/progress" component={Progress} />
+        <Route path="/nutrition" component={Nutrition} />
+        <Route path="/workouts" component={Workouts} />
+        <Route path="/devices" component={Devices} />
+        <Route path="/learn" component={Learn} />
+        <Route path="/settings" component={Settings} />
+        <Route path="/profile" component={Profile} />
+        <Route path="/playground" component={Playground} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 

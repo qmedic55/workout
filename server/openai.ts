@@ -1,8 +1,8 @@
 import OpenAI from "openai";
 import type { UserProfile, DailyLog, OnboardingAssessment, FoodEntry, ExerciseLog, HealthNote } from "@shared/schema";
 
-// Using user's own OpenAI API key
-const openai = new OpenAI({
+// Singleton OpenAI client - reused across all requests for better performance
+export const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 

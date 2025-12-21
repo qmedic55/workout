@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect, useState, lazy, Suspense } from "react";
+import { useQuery, useMutation, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { HealthInsights } from "@/components/health-insights";
-import { DailyGuidance } from "@/components/daily-guidance";
 import { QuickNote } from "@/components/quick-note";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -25,7 +23,11 @@ import {
   ArrowRight,
   RefreshCw,
 } from "lucide-react";
-import type { UserProfile, DailyLog } from "@shared/schema";
+import type { UserProfile, DailyLog, FoodEntry } from "@shared/schema";
+
+// Lazy load heavy components to improve initial load time
+const HealthInsights = lazy(() => import("@/components/health-insights").then(m => ({ default: m.HealthInsights })));
+const DailyGuidance = lazy(() => import("@/components/daily-guidance").then(m => ({ default: m.DailyGuidance })));
 
 function MetricCard({
   title,
@@ -295,18 +297,39 @@ function DashboardSkeleton() {
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const today = new Date().toISOString().split("T")[0];
 
-  const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
-    queryKey: ["/api/profile"],
-    staleTime: 30000, // Consider stale after 30 seconds to pick up AI changes
-    refetchOnMount: "always", // Always refetch when navigating to this page
+  // Parallel data fetching for better performance
+  const results = useQueries({
+    queries: [
+      {
+        queryKey: ["/api/profile"],
+        staleTime: 5 * 60 * 1000, // 5 minutes - profile rarely changes
+      },
+      {
+        queryKey: ["/api/daily-logs/today"],
+        staleTime: 30 * 1000, // 30 seconds - may be updated by food logging
+      },
+      {
+        queryKey: ["/api/food-entries", today],
+        staleTime: 10 * 1000, // 10 seconds - changes when food is logged
+      },
+    ],
   });
 
-  const { data: todayLog, isLoading: logLoading } = useQuery<DailyLog>({
-    queryKey: ["/api/daily-logs/today"],
-    staleTime: 0, // Always fetch fresh data
-    refetchOnMount: "always",
-  });
+  const profile = results[0].data as UserProfile | undefined;
+  const profileLoading = results[0].isLoading;
+  const todayLog = results[1].data as DailyLog | undefined;
+  const logLoading = results[1].isLoading;
+  const foodEntries = (results[2].data as FoodEntry[] | undefined) || [];
+
+  // Calculate nutrition from food entries directly for most accurate display
+  const todayNutrition = {
+    calories: foodEntries.reduce((sum, e) => sum + (e.calories || 0), 0),
+    protein: foodEntries.reduce((sum, e) => sum + (e.proteinGrams || 0), 0),
+    carbs: foodEntries.reduce((sum, e) => sum + (e.carbsGrams || 0), 0),
+    fat: foodEntries.reduce((sum, e) => sum + (e.fatGrams || 0), 0),
+  };
 
   // AI Sync mutation - analyzes all data and applies updates
   const syncMutation = useMutation({
@@ -387,7 +410,9 @@ export default function Dashboard() {
       {!profile?.onboardingCompleted ? (
         <WelcomeCard profile={profile} />
       ) : (
-        <DailyGuidance />
+        <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+          <DailyGuidance />
+        </Suspense>
       )}
 
       {/* Quick metrics - only show for onboarded users */}
@@ -403,7 +428,7 @@ export default function Dashboard() {
           />
           <MetricCard
             title="Calories"
-            value={todayLog?.caloriesConsumed || 0}
+            value={todayNutrition.calories}
             unit="kcal"
             target={profile?.targetCalories || 2000}
             icon={Flame}
@@ -441,7 +466,9 @@ export default function Dashboard() {
       )}
 
       {profile?.onboardingCompleted && (
-        <HealthInsights limit={3} />
+        <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+          <HealthInsights limit={3} />
+        </Suspense>
       )}
 
       {profile?.targetCalories && (
@@ -456,11 +483,11 @@ export default function Dashboard() {
                 <div className="flex justify-between text-sm">
                   <span>Protein</span>
                   <span className="text-muted-foreground">
-                    {todayLog?.proteinGrams?.toFixed(0) || 0}g / {profile.proteinGrams}g
+                    {todayNutrition.protein.toFixed(0)}g / {profile.proteinGrams}g
                   </span>
                 </div>
-                <Progress 
-                  value={profile.proteinGrams ? ((todayLog?.proteinGrams || 0) / profile.proteinGrams) * 100 : 0} 
+                <Progress
+                  value={profile.proteinGrams ? (todayNutrition.protein / profile.proteinGrams) * 100 : 0}
                   className="h-2 bg-chart-1/20"
                 />
               </div>
@@ -468,11 +495,11 @@ export default function Dashboard() {
                 <div className="flex justify-between text-sm">
                   <span>Carbs</span>
                   <span className="text-muted-foreground">
-                    {todayLog?.carbsGrams?.toFixed(0) || 0}g / {profile.carbsGrams}g
+                    {todayNutrition.carbs.toFixed(0)}g / {profile.carbsGrams}g
                   </span>
                 </div>
-                <Progress 
-                  value={profile.carbsGrams ? ((todayLog?.carbsGrams || 0) / profile.carbsGrams) * 100 : 0} 
+                <Progress
+                  value={profile.carbsGrams ? (todayNutrition.carbs / profile.carbsGrams) * 100 : 0}
                   className="h-2 bg-chart-2/20"
                 />
               </div>
@@ -480,11 +507,11 @@ export default function Dashboard() {
                 <div className="flex justify-between text-sm">
                   <span>Fat</span>
                   <span className="text-muted-foreground">
-                    {todayLog?.fatGrams?.toFixed(0) || 0}g / {profile.fatGrams}g
+                    {todayNutrition.fat.toFixed(0)}g / {profile.fatGrams}g
                   </span>
                 </div>
-                <Progress 
-                  value={profile.fatGrams ? ((todayLog?.fatGrams || 0) / profile.fatGrams) * 100 : 0} 
+                <Progress
+                  value={profile.fatGrams ? (todayNutrition.fat / profile.fatGrams) * 100 : 0}
                   className="h-2 bg-chart-4/20"
                 />
               </div>

@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput } from "./openai";
+import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput, openai } from "./openai";
 import { generateInsights } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { searchUSDAFoods } from "./foodApi";
@@ -2107,9 +2107,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         phase: profile.currentPhase,
       };
 
-      // Generate AI weekly summary
-      const openai = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
-
+      // Generate AI weekly summary (using shared singleton client)
       const aiResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -2197,8 +2195,6 @@ Return a JSON object with:
         healthNotes: healthNotes.map(n => n.content),
         targetWorkoutsPerWeek: assessment?.resistanceTrainingFrequency || 4,
       };
-
-      const openai = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
 
       const aiResponse = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -2392,8 +2388,6 @@ Return a JSON object with this exact structure:
       } else if (currentHour >= 17 && !mealsLogged.includes("dinner")) {
         suggestedMealType = "dinner";
       }
-
-      const openai = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
 
       const aiResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",

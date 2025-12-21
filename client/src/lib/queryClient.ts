@@ -47,8 +47,11 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      // Tiered stale times - fast-changing data refreshes more often
+      // Individual queries can override with their own staleTime
+      staleTime: 60 * 1000, // 1 minute default (was: Infinity - caused stale data issues)
+      gcTime: 5 * 60 * 1000, // Keep unused data for 5 minutes
+      retry: 1, // Allow one retry on failure
     },
     mutations: {
       retry: false,
