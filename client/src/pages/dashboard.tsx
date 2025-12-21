@@ -28,6 +28,7 @@ import type { UserProfile, DailyLog, FoodEntry } from "@shared/schema";
 // Lazy load heavy components to improve initial load time
 const HealthInsights = lazy(() => import("@/components/health-insights").then(m => ({ default: m.HealthInsights })));
 const DailyGuidance = lazy(() => import("@/components/daily-guidance").then(m => ({ default: m.DailyGuidance })));
+const RestDayCard = lazy(() => import("@/components/rest-day-card").then(m => ({ default: m.RestDayCard })));
 
 function MetricCard({
   title,
@@ -412,6 +413,13 @@ export default function Dashboard() {
       ) : (
         <Suspense fallback={<Skeleton className="h-48 w-full" />}>
           <DailyGuidance />
+        </Suspense>
+      )}
+
+      {/* Rest Day Recommendation - shows when rest is suggested */}
+      {profile?.onboardingCompleted && (
+        <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+          <RestDayCard variant="full" />
         </Suspense>
       )}
 

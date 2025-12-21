@@ -76,6 +76,8 @@ export interface IStorage {
   getExerciseLogs(userId: string, date: string): Promise<ExerciseLog[]>;
   getExerciseLogsRange(userId: string, startDate: string, endDate: string): Promise<ExerciseLog[]>;
   getExerciseLogsByWorkout(userId: string, date: string, workoutTemplateId: string): Promise<ExerciseLog[]>;
+  getExerciseLogsAll(userId: string): Promise<ExerciseLog[]>;
+  getAllDailyLogs(userId: string): Promise<DailyLog[]>;
   createExerciseLog(log: InsertExerciseLog): Promise<ExerciseLog>;
   updateExerciseLog(id: string, userId: string, updates: Partial<InsertExerciseLog>): Promise<ExerciseLog | undefined>;
   deleteExerciseLog(id: string, userId: string): Promise<boolean>;
@@ -410,6 +412,22 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(exerciseLogs.exerciseOrder);
+  }
+
+  async getExerciseLogsAll(userId: string): Promise<ExerciseLog[]> {
+    return db
+      .select()
+      .from(exerciseLogs)
+      .where(eq(exerciseLogs.userId, userId))
+      .orderBy(desc(exerciseLogs.logDate), exerciseLogs.exerciseOrder);
+  }
+
+  async getAllDailyLogs(userId: string): Promise<DailyLog[]> {
+    return db
+      .select()
+      .from(dailyLogs)
+      .where(eq(dailyLogs.userId, userId))
+      .orderBy(desc(dailyLogs.logDate));
   }
 
   async createExerciseLog(log: InsertExerciseLog): Promise<ExerciseLog> {

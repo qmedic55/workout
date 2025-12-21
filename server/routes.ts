@@ -2542,6 +2542,66 @@ Return a JSON object with this exact structure:
     }
   });
 
+  // ==================== Workout Analytics ====================
+
+  app.get("/api/workout-analytics", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+
+      // Fetch all workout data for analytics
+      const [dailyLogs, exerciseLogs] = await Promise.all([
+        storage.getAllDailyLogs(userId),
+        storage.getExerciseLogsAll(userId),
+      ]);
+
+      // Generate analytics using the workout analytics module
+      const { generateWorkoutAnalytics } = await import("./workoutAnalytics");
+      const analytics = generateWorkoutAnalytics(dailyLogs, exerciseLogs);
+
+      res.json(analytics);
+    } catch (error) {
+      console.error("Error generating workout analytics:", error);
+      res.status(500).json({ error: "Failed to generate workout analytics" });
+    }
+  });
+
+  // ==================== Rest Day Recommendations ====================
+
+  app.get("/api/rest-day-recommendation", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+
+      // Calculate date range for last 14 days
+      const startDate = format(subDays(new Date(), 14), "yyyy-MM-dd");
+      const endDate = format(new Date(), "yyyy-MM-dd");
+
+      // Fetch recent logs and profile for analysis
+      const [profile, dailyLogs, exerciseLogs] = await Promise.all([
+        storage.getProfile(userId),
+        storage.getDailyLogs(userId, startDate, endDate),
+        storage.getExerciseLogsAll(userId),
+      ]);
+
+      // Sort daily logs by date descending (most recent first)
+      const sortedLogs = [...dailyLogs].sort(
+        (a, b) => new Date(b.logDate).getTime() - new Date(a.logDate).getTime()
+      );
+
+      // Generate rest day recommendation
+      const { calculateRestDayRecommendation } = await import("./restDayRecommendations");
+      const recommendation = calculateRestDayRecommendation(
+        sortedLogs,
+        exerciseLogs,
+        profile || undefined
+      );
+
+      res.json(recommendation);
+    } catch (error) {
+      console.error("Error generating rest day recommendation:", error);
+      res.status(500).json({ error: "Failed to generate rest day recommendation" });
+    }
+  });
+
   // ==================== AI Meal Suggestions ====================
 
   app.get("/api/meal-suggestions", isAuthenticated, async (req: Request, res: Response) => {

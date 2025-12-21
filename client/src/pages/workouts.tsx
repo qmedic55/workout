@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap } from "lucide-react";
+import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3 } from "lucide-react";
+import { WorkoutAnalytics } from "@/components/workout-analytics";
+import { RestDayCard } from "@/components/rest-day-card";
 import type { WorkoutTemplate } from "@shared/schema";
 
 const defaultWorkouts: WorkoutTemplate[] = [
@@ -296,6 +298,9 @@ export default function Workouts() {
         </p>
       </div>
 
+      {/* Rest Day Recommendation Banner */}
+      <RestDayCard variant="compact" showWhenReady />
+
       {isLoading ? (
         <WorkoutsSkeleton />
       ) : (
@@ -312,6 +317,10 @@ export default function Workouts() {
             <TabsTrigger value="recovery" className="gap-1" data-testid="tab-recovery">
               <Zap className="h-4 w-4" />
               Recovery
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-1" data-testid="tab-analytics">
+              <BarChart3 className="h-4 w-4" />
+              Analytics
             </TabsTrigger>
           </TabsList>
 
@@ -356,6 +365,10 @@ export default function Workouts() {
                 />
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="analytics">
+            <WorkoutAnalytics />
           </TabsContent>
         </Tabs>
       )}
