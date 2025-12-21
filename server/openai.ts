@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { UserProfile, DailyLog, OnboardingAssessment, FoodEntry, ExerciseLog } from "@shared/schema";
+import type { UserProfile, DailyLog, OnboardingAssessment, FoodEntry, ExerciseLog, HealthNote } from "@shared/schema";
 
 // Using user's own OpenAI API key
 const openai = new OpenAI({
@@ -12,11 +12,12 @@ interface ChatContext {
   assessment?: OnboardingAssessment;
   foodEntries?: FoodEntry[];
   exerciseLogs?: ExerciseLog[];
+  healthNotes?: HealthNote[];
   dailyProgressSummary?: string;
 }
 
 function buildSystemPrompt(context: ChatContext): string {
-  const { profile, recentLogs, assessment, foodEntries, exerciseLogs, dailyProgressSummary } = context;
+  const { profile, recentLogs, assessment, foodEntries, exerciseLogs, healthNotes, dailyProgressSummary } = context;
   
   let toneInstruction = "";
   switch (profile?.coachingTone) {
@@ -209,6 +210,25 @@ WORKOUT LOG (recent workouts):`;
   • ${ex.exerciseName}${setsInfo}`;
       }
     }
+  }
+
+  // Health notes section - important user-provided context
+  if (healthNotes && healthNotes.length > 0) {
+    contextInfo += `
+
+USER NOTES (important context the user shared with you):`;
+    for (const note of healthNotes) {
+      const dateStr = note.createdAt ? new Date(note.createdAt).toLocaleDateString() : "";
+      contextInfo += `
+• [${note.category || "general"}${dateStr ? `, ${dateStr}` : ""}] "${note.content}"`;
+    }
+    contextInfo += `
+
+⚠️ IMPORTANT: Pay close attention to these notes! They contain crucial context like injuries, lifestyle events, sleep issues, or dietary concerns. Adjust your recommendations accordingly. For example:
+- If user mentioned an injury → avoid exercises that could aggravate it
+- If user mentioned overeating at an event → be supportive, not judgmental; help them get back on track
+- If user mentioned stress or sleep issues → prioritize recovery and stress management
+- Reference these notes directly to show you're listening (e.g., "Since you mentioned...")`;
   }
 
   // Add phase-specific workout guidance

@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HealthInsights } from "@/components/health-insights";
 import { DailyGuidance } from "@/components/daily-guidance";
+import { QuickNote } from "@/components/quick-note";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -323,7 +324,10 @@ export default function Dashboard() {
       {!profile?.onboardingCompleted ? (
         <WelcomeCard profile={profile} />
       ) : (
-        <DailyGuidance />
+        <>
+          <DailyGuidance />
+          <QuickNote />
+        </>
       )}
 
       {/* Quick metrics - only show for onboarded users */}

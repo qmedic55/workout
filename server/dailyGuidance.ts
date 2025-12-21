@@ -6,7 +6,7 @@
  */
 
 import OpenAI from "openai";
-import type { UserProfile, DailyLog, FoodEntry, ExerciseLog, OnboardingAssessment } from "@shared/schema";
+import type { UserProfile, DailyLog, FoodEntry, ExerciseLog, OnboardingAssessment, HealthNote } from "@shared/schema";
 import { format, subDays } from "date-fns";
 
 const openai = new OpenAI({
@@ -52,6 +52,7 @@ interface GuidanceContext {
   todayFoodEntries: FoodEntry[];
   yesterdayFoodEntries: FoodEntry[];
   recentExerciseLogs: ExerciseLog[];
+  healthNotes: HealthNote[];
   currentHour: number;
 }
 
@@ -65,6 +66,7 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
     todayFoodEntries,
     yesterdayFoodEntries,
     recentExerciseLogs,
+    healthNotes,
     currentHour,
   } = context;
 
@@ -151,6 +153,12 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
         ? Math.round(recentLogs.reduce((sum, l) => sum + (l.caloriesConsumed || 0), 0) / recentLogs.length)
         : null,
     },
+    // User-submitted health notes - important context about injuries, lifestyle, etc.
+    healthNotes: healthNotes.map(note => ({
+      content: note.content,
+      category: note.category,
+      createdAt: note.createdAt?.toISOString?.() || note.createdAt,
+    })),
   };
 
   const systemPrompt = `You are a health coach AI generating a personalized daily briefing for a user.
@@ -169,6 +177,12 @@ IMPORTANT RULES:
 5. Celebrate wins (hit protein target, completed workout, good sleep)
 6. Point out concerning patterns (missed workouts, low protein, poor sleep)
 7. Make the guidance feel personal, not generic
+8. PAY CLOSE ATTENTION to healthNotes - these are things the user told you directly:
+   - If they mentioned an injury, adjust workout recommendations accordingly
+   - If they mentioned overeating/party, acknowledge it without judgment and suggest getting back on track
+   - If they mentioned sleep issues, prioritize recovery recommendations
+   - If they mentioned stress, be more supportive and suggest stress-reducing activities
+   - Reference their notes specifically to show you're listening (e.g., "Since you mentioned your shoulder is hurting...")
 
 Current time context: It's ${currentHour}:00 (${currentHour < 12 ? "morning" : currentHour < 17 ? "afternoon" : "evening"})
 

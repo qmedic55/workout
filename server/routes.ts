@@ -702,6 +702,9 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Get exercise logs for last 14 days (single query)
       const allExerciseLogs = await storage.getExerciseLogsRange(userId, startDate, endDate);
 
+      // Get user's health notes for context
+      const healthNotes = await storage.getRecentHealthNotes(userId, 14);
+
       const messageHistory = await storage.getChatMessages(userId, 20);
 
       // Get real-time daily progress summary for the AI
@@ -717,6 +720,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           assessment,
           foodEntries: allFoodEntries,
           exerciseLogs: allExerciseLogs,
+          healthNotes,
           dailyProgressSummary,
         }
       );
@@ -1024,6 +1028,9 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Get exercise logs for the last 7 days
       const recentExerciseLogs = await storage.getExerciseLogsRange(userId, weekAgo, today);
 
+      // Get active health notes for context
+      const healthNotes = await storage.getRecentHealthNotes(userId, 14);
+
       // Generate AI guidance
       const guidance = await generateDailyGuidance({
         profile,
@@ -1034,6 +1041,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         todayFoodEntries,
         yesterdayFoodEntries,
         recentExerciseLogs,
+        healthNotes,
         currentHour: new Date().getHours(),
       });
 
@@ -1436,6 +1444,99 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error during AI sync:", error);
       res.status(500).json({ error: "Failed to sync with AI" });
+    }
+  });
+
+  // ==================== Health Notes Routes ====================
+
+  // Get user's health notes
+  app.get("/api/health-notes", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { active } = req.query;
+      const activeOnly = active !== "false";
+      const notes = await storage.getHealthNotes(userId, activeOnly);
+      res.json(notes);
+    } catch (error) {
+      console.error("Error fetching health notes:", error);
+      res.status(500).json({ error: "Failed to fetch health notes" });
+    }
+  });
+
+  // Create a new health note
+  app.post("/api/health-notes", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { content, category, expiresInDays } = req.body;
+
+      if (!content || typeof content !== "string" || content.trim().length === 0) {
+        res.status(400).json({ error: "Note content is required" });
+        return;
+      }
+
+      // Calculate expiry if provided
+      let expiresAt: Date | undefined;
+      if (expiresInDays && typeof expiresInDays === "number" && expiresInDays > 0) {
+        expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+      }
+
+      const note = await storage.createHealthNote({
+        userId,
+        content: content.trim(),
+        category: category || "general",
+        isActive: true,
+        expiresAt,
+      });
+
+      res.json(note);
+    } catch (error) {
+      console.error("Error creating health note:", error);
+      res.status(500).json({ error: "Failed to create health note" });
+    }
+  });
+
+  // Update a health note (e.g., mark as inactive)
+  app.patch("/api/health-notes/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = getUserId(req);
+      const { isActive, category } = req.body;
+
+      const updates: Record<string, any> = {};
+      if (typeof isActive === "boolean") updates.isActive = isActive;
+      if (category) updates.category = category;
+
+      const note = await storage.updateHealthNote(id, userId, updates);
+
+      if (!note) {
+        res.status(404).json({ error: "Note not found" });
+        return;
+      }
+
+      res.json(note);
+    } catch (error) {
+      console.error("Error updating health note:", error);
+      res.status(500).json({ error: "Failed to update health note" });
+    }
+  });
+
+  // Delete a health note
+  app.delete("/api/health-notes/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = getUserId(req);
+      const deleted = await storage.deleteHealthNote(id, userId);
+
+      if (!deleted) {
+        res.status(404).json({ error: "Note not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting health note:", error);
+      res.status(500).json({ error: "Failed to delete health note" });
     }
   });
 

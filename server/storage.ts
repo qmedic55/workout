@@ -13,6 +13,7 @@ import {
   foodDatabase,
   notifications,
   profileChanges,
+  healthNotes,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -34,6 +35,8 @@ import {
   type InsertNotification,
   type ProfileChange,
   type InsertProfileChange,
+  type HealthNote,
+  type InsertHealthNote,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -100,6 +103,13 @@ export interface IStorage {
   getProfileChangesByChatMessage(chatMessageId: string, userId: string): Promise<ProfileChange[]>;
   createProfileChange(change: InsertProfileChange): Promise<ProfileChange>;
   getRecentChangeSummary(userId: string, days?: number): Promise<ProfileChange[]>;
+
+  // Health Notes
+  getHealthNotes(userId: string, activeOnly?: boolean): Promise<HealthNote[]>;
+  getRecentHealthNotes(userId: string, days?: number): Promise<HealthNote[]>;
+  createHealthNote(note: InsertHealthNote): Promise<HealthNote>;
+  updateHealthNote(id: string, userId: string, updates: Partial<InsertHealthNote>): Promise<HealthNote | undefined>;
+  deleteHealthNote(id: string, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -444,6 +454,75 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(desc(profileChanges.createdAt));
+  }
+
+  // Health Notes
+  async getHealthNotes(userId: string, activeOnly: boolean = true): Promise<HealthNote[]> {
+    const now = new Date();
+
+    if (activeOnly) {
+      // Get active notes that haven't expired
+      const result = await db
+        .select()
+        .from(healthNotes)
+        .where(eq(healthNotes.userId, userId))
+        .orderBy(desc(healthNotes.createdAt));
+
+      // Filter out expired notes in JS since Drizzle OR conditions are complex
+      return result.filter(note =>
+        note.isActive && (!note.expiresAt || new Date(note.expiresAt) > now)
+      );
+    }
+
+    return db
+      .select()
+      .from(healthNotes)
+      .where(eq(healthNotes.userId, userId))
+      .orderBy(desc(healthNotes.createdAt));
+  }
+
+  async getRecentHealthNotes(userId: string, days: number = 14): Promise<HealthNote[]> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const result = await db
+      .select()
+      .from(healthNotes)
+      .where(
+        and(
+          eq(healthNotes.userId, userId),
+          gte(healthNotes.createdAt, startDate)
+        )
+      )
+      .orderBy(desc(healthNotes.createdAt));
+
+    // Filter out expired notes
+    const now = new Date();
+    return result.filter(note =>
+      note.isActive && (!note.expiresAt || new Date(note.expiresAt) > now)
+    );
+  }
+
+  async createHealthNote(note: InsertHealthNote): Promise<HealthNote> {
+    const result = await db.insert(healthNotes).values(note).returning();
+    return result[0];
+  }
+
+  async updateHealthNote(id: string, userId: string, updates: Partial<InsertHealthNote>): Promise<HealthNote | undefined> {
+    const result = await db
+      .update(healthNotes)
+      .set(updates)
+      .where(and(eq(healthNotes.id, id), eq(healthNotes.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteHealthNote(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(healthNotes)
+      .where(and(eq(healthNotes.id, id), eq(healthNotes.userId, userId)))
+      .returning();
+    return result.length > 0;
   }
 }
 

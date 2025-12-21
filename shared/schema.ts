@@ -296,6 +296,26 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Health notes - user-submitted context notes for AI coaching
+export const healthNotes = pgTable("health_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  // The note content
+  content: text("content").notNull(),
+
+  // AI-categorized type (processed by AI when saved)
+  category: text("category"), // injury, nutrition, sleep, stress, lifestyle, general
+
+  // Whether this note is still relevant (old injuries might heal, etc.)
+  isActive: boolean("is_active").default(true),
+
+  // Optional expiry - some notes like "ate too much at a party" are short-term
+  expiresAt: timestamp("expires_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Profile changes history - tracks all AI-initiated and manual changes
 export const profileChanges = pgTable("profile_changes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -343,6 +363,14 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   wearableConnections: many(wearableConnections),
   notifications: many(notifications),
   profileChanges: many(profileChanges),
+  healthNotes: many(healthNotes),
+}));
+
+export const healthNotesRelations = relations(healthNotes, ({ one }) => ({
+  user: one(users, {
+    fields: [healthNotes.userId],
+    references: [users.id],
+  }),
 }));
 
 export const profileChangesRelations = relations(profileChanges, ({ one }) => ({
@@ -472,6 +500,11 @@ export const insertProfileChangeSchema = createInsertSchema(profileChanges).omit
   createdAt: true,
 });
 
+export const insertHealthNoteSchema = createInsertSchema(healthNotes).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -504,3 +537,6 @@ export type Notification = typeof notifications.$inferSelect;
 
 export type InsertProfileChange = z.infer<typeof insertProfileChangeSchema>;
 export type ProfileChange = typeof profileChanges.$inferSelect;
+
+export type InsertHealthNote = z.infer<typeof insertHealthNoteSchema>;
+export type HealthNote = typeof healthNotes.$inferSelect;
