@@ -320,14 +320,14 @@ export default function Dashboard() {
         </Button>
       </div>
 
+      {/* Quick Note - always visible at top for quick logging */}
+      {profile?.onboardingCompleted && <QuickNote />}
+
       {/* Show WelcomeCard for new users, DailyGuidance for onboarded users */}
       {!profile?.onboardingCompleted ? (
         <WelcomeCard profile={profile} />
       ) : (
-        <>
-          <DailyGuidance />
-          <QuickNote />
-        </>
+        <DailyGuidance />
       )}
 
       {/* Quick metrics - only show for onboarded users */}

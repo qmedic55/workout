@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { generateMentorResponse, calculateTargets } from "./openai";
+import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput } from "./openai";
 import { generateInsights } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { searchUSDAFoods } from "./foodApi";
@@ -1463,7 +1463,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  // Create a new health note
+  // Create a new health note (with comprehensive AI parsing for food, workouts, sleep, etc.)
   app.post("/api/health-notes", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
@@ -1474,22 +1474,167 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         return;
       }
 
-      // Calculate expiry if provided
-      let expiresAt: Date | undefined;
-      if (expiresInDays && typeof expiresInDays === "number" && expiresInDays > 0) {
-        expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+      const trimmedContent = content.trim();
+      const today = format(new Date(), "yyyy-MM-dd");
+
+      // Use AI to parse all trackable data from natural language
+      const parseResult = await parseNaturalLanguageInput(trimmedContent);
+
+      // Track what was created for the response
+      const createdFoodEntries: any[] = [];
+      const createdExerciseLogs: any[] = [];
+      let dailyLogUpdated = false;
+      const dailyLogChanges: string[] = [];
+
+      // 1. Create food entries
+      if (parseResult.foods.length > 0) {
+        for (const food of parseResult.foods) {
+          try {
+            const entry = await storage.createFoodEntry({
+              userId,
+              logDate: today,
+              mealType: food.mealType,
+              foodName: food.foodName,
+              servingSize: food.servingSize,
+              servingQuantity: food.servingQuantity,
+              calories: food.calories,
+              proteinGrams: food.proteinGrams,
+              carbsGrams: food.carbsGrams,
+              fatGrams: food.fatGrams,
+              fiberGrams: food.fiberGrams,
+            });
+            createdFoodEntries.push(entry);
+          } catch (err) {
+            console.error("Error creating food entry from note:", err);
+          }
+        }
       }
 
-      const note = await storage.createHealthNote({
-        userId,
-        content: content.trim(),
-        category: category || "general",
-        isActive: true,
-        expiresAt,
-      });
+      // 2. Create exercise logs
+      if (parseResult.exercises.length > 0) {
+        for (let i = 0; i < parseResult.exercises.length; i++) {
+          const exercise = parseResult.exercises[i];
+          try {
+            // Build set details if sets/reps/weight provided
+            let setDetails: { reps: number; weightKg?: number }[] | undefined;
+            if (exercise.sets && exercise.reps) {
+              const repsNum = parseInt(exercise.reps) || 10;
+              setDetails = Array(exercise.sets).fill(null).map(() => ({
+                reps: repsNum,
+                weightKg: exercise.weightKg,
+              }));
+            }
 
-      res.json(note);
+            const exerciseLog = await storage.createExerciseLog({
+              userId,
+              logDate: today,
+              exerciseName: exercise.exerciseName,
+              exerciseOrder: i + 1,
+              prescribedSets: exercise.sets,
+              prescribedReps: exercise.reps,
+              completedSets: exercise.sets,
+              setDetails,
+              notes: exercise.notes || (exercise.durationMinutes ? `${exercise.durationMinutes} minutes` : undefined),
+            });
+            createdExerciseLogs.push(exerciseLog);
+          } catch (err) {
+            console.error("Error creating exercise log from note:", err);
+          }
+        }
+      }
+
+      // 3. Update daily log with any biofeedback data
+      const updates = parseResult.dailyLogUpdates;
+      const hasUpdates = Object.values(updates).some(v => v !== undefined);
+
+      if (hasUpdates || parseResult.workoutCompleted) {
+        try {
+          const logUpdates: Record<string, any> = {};
+
+          if (updates.sleepHours !== undefined) {
+            logUpdates.sleepHours = updates.sleepHours;
+            dailyLogChanges.push(`Sleep: ${updates.sleepHours}h`);
+          }
+          if (updates.sleepQuality !== undefined) {
+            logUpdates.sleepQuality = updates.sleepQuality;
+            dailyLogChanges.push(`Sleep quality: ${updates.sleepQuality}/10`);
+          }
+          if (updates.steps !== undefined) {
+            logUpdates.steps = updates.steps;
+            dailyLogChanges.push(`Steps: ${updates.steps.toLocaleString()}`);
+          }
+          if (updates.energyLevel !== undefined) {
+            logUpdates.energyLevel = updates.energyLevel;
+            dailyLogChanges.push(`Energy: ${updates.energyLevel}/10`);
+          }
+          if (updates.stressLevel !== undefined) {
+            logUpdates.stressLevel = updates.stressLevel;
+            dailyLogChanges.push(`Stress: ${updates.stressLevel}/10`);
+          }
+          if (updates.moodRating !== undefined) {
+            logUpdates.moodRating = updates.moodRating;
+            dailyLogChanges.push(`Mood: ${updates.moodRating}/10`);
+          }
+          if (updates.weightKg !== undefined) {
+            logUpdates.weightKg = updates.weightKg;
+            dailyLogChanges.push(`Weight: ${updates.weightKg}kg`);
+          }
+          if (updates.waterLiters !== undefined) {
+            logUpdates.waterLiters = updates.waterLiters;
+            dailyLogChanges.push(`Water: ${updates.waterLiters}L`);
+          }
+          if (parseResult.workoutCompleted) {
+            logUpdates.workoutCompleted = true;
+            if (parseResult.workoutType) {
+              logUpdates.workoutType = parseResult.workoutType;
+            }
+            dailyLogChanges.push(`Workout: ${parseResult.workoutType || "completed"}`);
+          }
+
+          if (Object.keys(logUpdates).length > 0) {
+            // Use createOrUpdateDailyLog which handles both create and update
+            await storage.createOrUpdateDailyLog({
+              userId,
+              logDate: today,
+              ...logUpdates,
+            });
+            dailyLogUpdated = true;
+          }
+        } catch (err) {
+          console.error("Error updating daily log from note:", err);
+        }
+      }
+
+      // 4. Only save as health note if it contains contextual info worth remembering
+      let note = null;
+      if (parseResult.isHealthNote) {
+        let expiresAt: Date | undefined;
+        if (expiresInDays && typeof expiresInDays === "number" && expiresInDays > 0) {
+          expiresAt = new Date();
+          expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+        }
+
+        note = await storage.createHealthNote({
+          userId,
+          content: trimmedContent,
+          category: category || "general",
+          isActive: true,
+          expiresAt,
+        });
+      }
+
+      // Return comprehensive response
+      res.json({
+        note,
+        foodEntries: createdFoodEntries,
+        foodsLogged: createdFoodEntries.length,
+        exerciseLogs: createdExerciseLogs,
+        exercisesLogged: createdExerciseLogs.length,
+        dailyLogUpdated,
+        dailyLogChanges,
+        workoutCompleted: parseResult.workoutCompleted,
+        workoutType: parseResult.workoutType,
+      });
     } catch (error) {
       console.error("Error creating health note:", error);
       res.status(500).json({ error: "Failed to create health note" });

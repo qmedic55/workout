@@ -483,3 +483,209 @@ export function calculateTargets(profile: Partial<UserProfile & OnboardingAssess
     recommendedPhase,
   };
 }
+
+// Parsed food entry
+export interface ParsedFood {
+  foodName: string;
+  mealType: "breakfast" | "lunch" | "dinner" | "snack";
+  servingSize: string;
+  servingQuantity: number;
+  calories: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatGrams: number;
+  fiberGrams: number;
+}
+
+// Parsed exercise entry
+export interface ParsedExercise {
+  exerciseName: string;
+  sets?: number;
+  reps?: string; // "10" or "10-12" or "30 sec"
+  weightKg?: number;
+  durationMinutes?: number;
+  notes?: string;
+}
+
+// Parsed daily log updates
+export interface ParsedDailyLogUpdates {
+  sleepHours?: number;
+  sleepQuality?: number; // 1-10
+  steps?: number;
+  energyLevel?: number; // 1-10
+  stressLevel?: number; // 1-10
+  moodRating?: number; // 1-10
+  weightKg?: number;
+  waterLiters?: number;
+}
+
+// Comprehensive parse result
+export interface NaturalLanguageParseResult {
+  foods: ParsedFood[];
+  exercises: ParsedExercise[];
+  dailyLogUpdates: ParsedDailyLogUpdates;
+  isHealthNote: boolean; // true if note should also be saved as health note for AI context
+  workoutType?: string; // e.g., "upper body", "leg day", "cardio"
+  workoutCompleted?: boolean;
+}
+
+/**
+ * Parse natural language text to extract all trackable health data.
+ * Handles food, workouts, sleep, steps, biofeedback, and more.
+ */
+export async function parseNaturalLanguageInput(text: string): Promise<NaturalLanguageParseResult> {
+  try {
+    const systemPrompt = `You are a health data extraction assistant. Analyze the text and extract any trackable health data the user is reporting.
+
+EXTRACT THE FOLLOWING WHEN PRESENT:
+
+1. **FOOD** (things they ATE, not planning to eat):
+   - Each food item with nutritional estimates
+   - Meal type (breakfast/lunch/dinner/snack)
+   - Use reasonable estimates for common foods
+
+2. **EXERCISES** (workouts they DID, not planning):
+   - Exercise name
+   - Sets, reps, weight if mentioned
+   - Duration if cardio
+   - Include specific exercises like "bench press 3x10 at 185lbs" or general like "did leg day"
+
+3. **DAILY LOG UPDATES**:
+   - sleepHours: if they mention sleep duration ("slept 7 hours", "got 6 hours of sleep")
+   - sleepQuality: 1-10 if they describe quality ("slept great" = 8-9, "slept terribly" = 2-3)
+   - steps: if they mention step count
+   - energyLevel: 1-10 based on descriptions ("feeling energetic" = 8, "exhausted" = 2)
+   - stressLevel: 1-10 based on descriptions ("stressed out" = 8, "feeling calm" = 3)
+   - moodRating: 1-10 based on descriptions
+   - weightKg: if they mention weight (convert lbs to kg if needed)
+   - waterLiters: if they mention water intake
+
+4. **WORKOUT INFO**:
+   - workoutType: category like "upper body", "lower body", "full body", "cardio", "HIIT", "yoga"
+   - workoutCompleted: true if they completed a workout
+
+5. **isHealthNote**: Set to true if the text contains:
+   - Injuries, pain, or physical issues
+   - Emotional context (stress, anxiety, excitement about progress)
+   - Lifestyle factors worth remembering (busy week, traveling, etc.)
+   - General context that's useful but not directly trackable
+
+EXAMPLES:
+
+Input: "I had eggs and toast for breakfast, then hit the gym and did bench press 4x8 at 185lbs and some tricep work"
+Output: {
+  "foods": [{"foodName": "Eggs", "mealType": "breakfast", "servingSize": "2 large", "servingQuantity": 2, "calories": 180, "proteinGrams": 12, "carbsGrams": 1, "fatGrams": 13, "fiberGrams": 0}, {"foodName": "Toast", "mealType": "breakfast", "servingSize": "2 slices", "servingQuantity": 2, "calories": 158, "proteinGrams": 6, "carbsGrams": 26, "fatGrams": 2, "fiberGrams": 2}],
+  "exercises": [{"exerciseName": "Bench Press", "sets": 4, "reps": "8", "weightKg": 84}, {"exerciseName": "Tricep work", "notes": "unspecified tricep exercises"}],
+  "dailyLogUpdates": {},
+  "isHealthNote": false,
+  "workoutType": "upper body",
+  "workoutCompleted": true
+}
+
+Input: "Slept about 6 hours, feeling pretty tired. Had a protein shake after my run. Did 3 miles in 25 minutes."
+Output: {
+  "foods": [{"foodName": "Protein shake", "mealType": "snack", "servingSize": "1 scoop", "servingQuantity": 1, "calories": 120, "proteinGrams": 25, "carbsGrams": 3, "fatGrams": 1, "fiberGrams": 0}],
+  "exercises": [{"exerciseName": "Running", "durationMinutes": 25, "notes": "3 miles"}],
+  "dailyLogUpdates": {"sleepHours": 6, "sleepQuality": 4, "energyLevel": 4},
+  "isHealthNote": false,
+  "workoutType": "cardio",
+  "workoutCompleted": true
+}
+
+Input: "My shoulder is really bothering me today, going to skip upper body"
+Output: {
+  "foods": [],
+  "exercises": [],
+  "dailyLogUpdates": {},
+  "isHealthNote": true,
+  "workoutType": null,
+  "workoutCompleted": false
+}
+
+Input: "Walked 12000 steps today, feeling great! Had salmon and veggies for dinner."
+Output: {
+  "foods": [{"foodName": "Salmon", "mealType": "dinner", "servingSize": "6 oz", "servingQuantity": 1, "calories": 350, "proteinGrams": 40, "carbsGrams": 0, "fatGrams": 20, "fiberGrams": 0}, {"foodName": "Mixed vegetables", "mealType": "dinner", "servingSize": "1 cup", "servingQuantity": 1, "calories": 50, "proteinGrams": 2, "carbsGrams": 10, "fatGrams": 0, "fiberGrams": 4}],
+  "exercises": [],
+  "dailyLogUpdates": {"steps": 12000, "energyLevel": 8, "moodRating": 8},
+  "isHealthNote": false
+}
+
+Input: "Didn't sleep well, maybe 5 hours. Stressed about work. Just had coffee."
+Output: {
+  "foods": [{"foodName": "Coffee", "mealType": "snack", "servingSize": "1 cup", "servingQuantity": 1, "calories": 5, "proteinGrams": 0, "carbsGrams": 0, "fatGrams": 0, "fiberGrams": 0}],
+  "exercises": [],
+  "dailyLogUpdates": {"sleepHours": 5, "sleepQuality": 3, "stressLevel": 7, "energyLevel": 4},
+  "isHealthNote": true
+}
+
+Respond ONLY with valid JSON. Use null for missing optional fields.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ],
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content || "{}";
+    const result = JSON.parse(content);
+
+    // Validate and provide defaults
+    return {
+      foods: (result.foods || []).map((food: any) => ({
+        foodName: food.foodName || "Unknown food",
+        mealType: food.mealType || "snack",
+        servingSize: food.servingSize || "1 serving",
+        servingQuantity: food.servingQuantity || 1,
+        calories: Math.round(food.calories || 0),
+        proteinGrams: Math.round(food.proteinGrams || 0),
+        carbsGrams: Math.round(food.carbsGrams || 0),
+        fatGrams: Math.round(food.fatGrams || 0),
+        fiberGrams: Math.round(food.fiberGrams || 0),
+      })),
+      exercises: (result.exercises || []).map((ex: any) => ({
+        exerciseName: ex.exerciseName || "Exercise",
+        sets: ex.sets || undefined,
+        reps: ex.reps || undefined,
+        weightKg: ex.weightKg || undefined,
+        durationMinutes: ex.durationMinutes || undefined,
+        notes: ex.notes || undefined,
+      })),
+      dailyLogUpdates: {
+        sleepHours: result.dailyLogUpdates?.sleepHours || undefined,
+        sleepQuality: result.dailyLogUpdates?.sleepQuality || undefined,
+        steps: result.dailyLogUpdates?.steps || undefined,
+        energyLevel: result.dailyLogUpdates?.energyLevel || undefined,
+        stressLevel: result.dailyLogUpdates?.stressLevel || undefined,
+        moodRating: result.dailyLogUpdates?.moodRating || undefined,
+        weightKg: result.dailyLogUpdates?.weightKg || undefined,
+        waterLiters: result.dailyLogUpdates?.waterLiters || undefined,
+      },
+      isHealthNote: result.isHealthNote ?? false,
+      workoutType: result.workoutType || undefined,
+      workoutCompleted: result.workoutCompleted ?? false,
+    };
+  } catch (error) {
+    console.error("Error parsing natural language input:", error);
+    // On error, treat as health note only
+    return {
+      foods: [],
+      exercises: [],
+      dailyLogUpdates: {},
+      isHealthNote: true,
+    };
+  }
+}
+
+// Legacy function for backwards compatibility
+export async function parseFoodFromText(text: string): Promise<{ containsFood: boolean; foods: ParsedFood[]; isHealthNote: boolean }> {
+  const result = await parseNaturalLanguageInput(text);
+  return {
+    containsFood: result.foods.length > 0,
+    foods: result.foods,
+    isHealthNote: result.isHealthNote,
+  };
+}

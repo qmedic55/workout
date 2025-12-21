@@ -90,7 +90,7 @@ export function QuickNote() {
     select: (data) => data.slice(0, 5),
   });
 
-  // Save note mutation
+  // Save note mutation (with comprehensive AI parsing for food, workouts, sleep, etc.)
   const saveMutation = useMutation({
     mutationFn: async (content: string) => {
       const response = await apiRequest("POST", "/api/health-notes", {
@@ -100,21 +100,73 @@ export function QuickNote() {
         // Short-term notes expire in 7 days, ongoing issues don't expire
         expiresInDays: isShortTermNote(content) ? 7 : undefined,
       });
-      return response.json();
+      return response.json() as Promise<{
+        note: HealthNote | null;
+        foodEntries: Array<{ id: string; foodName: string; calories: number }>;
+        foodsLogged: number;
+        exerciseLogs: Array<{ id: string; exerciseName: string }>;
+        exercisesLogged: number;
+        dailyLogUpdated: boolean;
+        dailyLogChanges: string[];
+        workoutCompleted: boolean;
+        workoutType?: string;
+      }>;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setNote("");
       setIsExpanded(false);
       queryClient.invalidateQueries({ queryKey: ["/api/health-notes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
-      toast({
-        title: "Note saved",
-        description: "Your note has been saved and will be used by your AI coach.",
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/exercise-logs"] });
+
+      // Build a comprehensive description of what was logged
+      const parts: string[] = [];
+
+      if (data.foodsLogged > 0) {
+        const foodNames = data.foodEntries.map((f) => f.foodName).join(", ");
+        const totalCals = data.foodEntries.reduce((sum, f) => sum + (f.calories || 0), 0);
+        parts.push(`${foodNames} (${totalCals} cal)`);
+      }
+
+      if (data.exercisesLogged > 0) {
+        const exerciseNames = data.exerciseLogs.map((e) => e.exerciseName).join(", ");
+        parts.push(`Exercises: ${exerciseNames}`);
+      }
+
+      if (data.dailyLogChanges.length > 0) {
+        parts.push(data.dailyLogChanges.join(", "));
+      }
+
+      if (data.note) {
+        parts.push("Note saved for AI coach");
+      }
+
+      // Determine the title based on what was logged
+      let title = "Logged";
+      if (data.foodsLogged > 0 && data.exercisesLogged > 0) {
+        title = "Food & workout logged";
+      } else if (data.foodsLogged > 0) {
+        title = "Food logged";
+      } else if (data.exercisesLogged > 0 || data.workoutCompleted) {
+        title = "Workout logged";
+      } else if (data.dailyLogUpdated) {
+        title = "Data updated";
+      } else if (data.note) {
+        title = "Note saved";
+      }
+
+      if (parts.length > 0) {
+        toast({
+          title,
+          description: parts.join(" • "),
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to save note",
+        title: "Failed to save",
         description: error.message,
         variant: "destructive",
       });
@@ -182,7 +234,7 @@ export function QuickNote() {
           )}
         </div>
         <CardDescription className="text-xs">
-          Share anything health-related - injuries, sleep, stress, diet changes
+          Log anything: food, workouts, sleep, mood - AI understands natural language
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -191,7 +243,7 @@ export function QuickNote() {
           {isExpanded ? (
             <>
               <Textarea
-                placeholder="e.g., 'I ate too much at a party yesterday' or 'My shoulder is hurting, need to skip upper body workouts for a few days'"
+                placeholder="e.g., 'Had eggs for breakfast, then did 3x10 bench press at 185lbs' or 'Slept 7 hours, feeling great' or 'My shoulder is hurting'"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="min-h-[80px] text-sm resize-none"
