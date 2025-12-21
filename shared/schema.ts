@@ -331,6 +331,77 @@ export const bodyMeasurements = pgTable("body_measurements", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Meal templates - user-saved meal presets for quick logging
+export const mealTemplates = pgTable("meal_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  name: text("name").notNull(), // "Morning Protein Shake", "Work Lunch"
+  mealType: text("meal_type"), // breakfast, lunch, dinner, snack (optional default)
+
+  // Aggregated nutrition
+  totalCalories: integer("total_calories"),
+  totalProtein: real("total_protein"),
+  totalCarbs: real("total_carbs"),
+  totalFat: real("total_fat"),
+
+  // Individual food items stored as JSON
+  items: jsonb("items").notNull(), // [{foodName, servingSize, quantity, calories, protein, carbs, fat}]
+
+  usageCount: integer("usage_count").default(0), // For sorting by popularity
+  lastUsedAt: timestamp("last_used_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Goals - user-defined fitness and health goals
+export const goals = pgTable("goals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  // Goal definition
+  title: text("title").notNull(), // "Reach 180 lbs"
+  description: text("description"),
+  category: text("category").notNull(), // weight, strength, nutrition, activity, body_comp
+
+  // Target
+  targetType: text("target_type").notNull(), // reach_value, maintain_streak, complete_count
+  targetValue: real("target_value"), // 180 (lbs), 100 (protein g), etc.
+  targetUnit: text("target_unit"), // lbs, kg, g, reps, days
+
+  // Tracking
+  startValue: real("start_value"), // Starting point
+  currentValue: real("current_value"), // Auto-updated
+
+  // Timeline
+  targetDate: date("target_date"), // Optional deadline
+  startDate: date("start_date").defaultNow(),
+  completedAt: timestamp("completed_at"),
+
+  // Status
+  status: text("status").notNull().default("active"), // active, completed, abandoned
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Milestones - intermediate checkpoints for goals
+export const milestones = pgTable("milestones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  goalId: varchar("goal_id").notNull().references(() => goals.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  title: text("title").notNull(), // "Lose first 5 lbs"
+  targetValue: real("target_value"),
+
+  isCompleted: boolean("is_completed").default(false),
+  completedAt: timestamp("completed_at"),
+
+  order: integer("order").default(0), // For sorting
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Health notes - user-submitted context notes for AI coaching
 export const healthNotes = pgTable("health_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -400,6 +471,35 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   profileChanges: many(profileChanges),
   healthNotes: many(healthNotes),
   bodyMeasurements: many(bodyMeasurements),
+  mealTemplates: many(mealTemplates),
+  goals: many(goals),
+  milestones: many(milestones),
+}));
+
+export const mealTemplatesRelations = relations(mealTemplates, ({ one }) => ({
+  user: one(users, {
+    fields: [mealTemplates.userId],
+    references: [users.id],
+  }),
+}));
+
+export const goalsRelations = relations(goals, ({ one, many }) => ({
+  user: one(users, {
+    fields: [goals.userId],
+    references: [users.id],
+  }),
+  milestones: many(milestones),
+}));
+
+export const milestonesRelations = relations(milestones, ({ one }) => ({
+  goal: one(goals, {
+    fields: [milestones.goalId],
+    references: [goals.id],
+  }),
+  user: one(users, {
+    fields: [milestones.userId],
+    references: [users.id],
+  }),
 }));
 
 export const healthNotesRelations = relations(healthNotes, ({ one }) => ({
@@ -553,6 +653,36 @@ export const insertBodyMeasurementSchema = createInsertSchema(bodyMeasurements).
   createdAt: true,
 });
 
+export const insertMealTemplateSchema = createInsertSchema(mealTemplates, {
+  items: z.array(z.object({
+    foodName: z.string(),
+    servingSize: z.string().optional(),
+    quantity: z.number().optional(),
+    calories: z.number().optional(),
+    proteinGrams: z.number().optional(),
+    carbsGrams: z.number().optional(),
+    fatGrams: z.number().optional(),
+  })),
+}).omit({
+  id: true,
+  createdAt: true,
+  usageCount: true,
+  lastUsedAt: true,
+});
+
+export const insertGoalSchema = createInsertSchema(goals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
+export const insertMilestoneSchema = createInsertSchema(milestones).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -591,3 +721,12 @@ export type HealthNote = typeof healthNotes.$inferSelect;
 
 export type InsertBodyMeasurement = z.infer<typeof insertBodyMeasurementSchema>;
 export type BodyMeasurement = typeof bodyMeasurements.$inferSelect;
+
+export type InsertMealTemplate = z.infer<typeof insertMealTemplateSchema>;
+export type MealTemplate = typeof mealTemplates.$inferSelect;
+
+export type InsertGoal = z.infer<typeof insertGoalSchema>;
+export type Goal = typeof goals.$inferSelect;
+
+export type InsertMilestone = z.infer<typeof insertMilestoneSchema>;
+export type Milestone = typeof milestones.$inferSelect;

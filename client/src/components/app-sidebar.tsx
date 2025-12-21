@@ -11,6 +11,7 @@ import {
   Watch,
   ClipboardList,
   Blocks,
+  Target,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { UserProfile } from "@shared/schema";
@@ -43,6 +44,11 @@ const mainNavItems = [
     title: "Progress",
     url: "/progress",
     icon: TrendingUp,
+  },
+  {
+    title: "Goals",
+    url: "/goals",
+    icon: Target,
   },
   {
     title: "Daily Log",

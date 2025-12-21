@@ -1589,6 +1589,9 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         try {
           const logUpdates: Record<string, any> = {};
 
+          // Get existing log to calculate accumulated totals for display
+          const existingLog = await storage.getDailyLog(userId, today);
+
           if (updates.sleepHours !== undefined) {
             logUpdates.sleepHours = updates.sleepHours;
             dailyLogChanges.push(`Sleep: ${updates.sleepHours}h`);
@@ -1599,7 +1602,14 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           }
           if (updates.steps !== undefined) {
             logUpdates.steps = updates.steps;
-            dailyLogChanges.push(`Steps: ${updates.steps.toLocaleString()}`);
+            // Show the total after accumulation
+            const existingSteps = existingLog?.steps || 0;
+            const newTotal = existingSteps + updates.steps;
+            if (existingSteps > 0) {
+              dailyLogChanges.push(`Steps: +${updates.steps.toLocaleString()} (${newTotal.toLocaleString()} total)`);
+            } else {
+              dailyLogChanges.push(`Steps: ${updates.steps.toLocaleString()}`);
+            }
           }
           if (updates.energyLevel !== undefined) {
             logUpdates.energyLevel = updates.energyLevel;
@@ -1619,7 +1629,14 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           }
           if (updates.waterLiters !== undefined) {
             logUpdates.waterLiters = updates.waterLiters;
-            dailyLogChanges.push(`Water: ${updates.waterLiters}L`);
+            // Show the total after accumulation
+            const existingWater = existingLog?.waterLiters || 0;
+            const newTotal = existingWater + updates.waterLiters;
+            if (existingWater > 0) {
+              dailyLogChanges.push(`Water: +${updates.waterLiters}L (${newTotal}L total)`);
+            } else {
+              dailyLogChanges.push(`Water: ${updates.waterLiters}L`);
+            }
           }
           if (parseResult.workoutCompleted) {
             logUpdates.workoutCompleted = true;
@@ -1631,11 +1648,13 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
           if (Object.keys(logUpdates).length > 0) {
             // Use createOrUpdateDailyLog which handles both create and update
+            // Pass accumulate: true so that steps and water ADD to existing values
+            // instead of replacing them (e.g., 7500 steps + 1000 more = 8500 total)
             await storage.createOrUpdateDailyLog({
               userId,
               logDate: today,
               ...logUpdates,
-            });
+            }, { accumulate: true });
             dailyLogUpdated = true;
           }
         } catch (err) {
@@ -2024,6 +2043,182 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error exporting CSV:", error);
       res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
+  // ==================== Meal Templates Routes ====================
+
+  // Get all meal templates for user (sorted by usage)
+  app.get("/api/meal-templates", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const templates = await storage.getMealTemplates(userId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching meal templates:", error);
+      res.status(500).json({ error: "Failed to fetch meal templates" });
+    }
+  });
+
+  // Get a specific meal template
+  app.get("/api/meal-templates/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const template = await storage.getMealTemplate(id, userId);
+
+      if (!template) {
+        res.status(404).json({ error: "Meal template not found" });
+        return;
+      }
+
+      res.json(template);
+    } catch (error) {
+      console.error("Error fetching meal template:", error);
+      res.status(500).json({ error: "Failed to fetch meal template" });
+    }
+  });
+
+  // Create a new meal template
+  app.post("/api/meal-templates", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { name, mealType, items } = req.body;
+
+      if (!name || typeof name !== "string" || name.trim().length === 0) {
+        res.status(400).json({ error: "Template name is required" });
+        return;
+      }
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        res.status(400).json({ error: "At least one food item is required" });
+        return;
+      }
+
+      // Calculate totals from items
+      const totalCalories = items.reduce((sum: number, item: any) => sum + (item.calories || 0), 0);
+      const totalProtein = items.reduce((sum: number, item: any) => sum + (item.proteinGrams || 0), 0);
+      const totalCarbs = items.reduce((sum: number, item: any) => sum + (item.carbsGrams || 0), 0);
+      const totalFat = items.reduce((sum: number, item: any) => sum + (item.fatGrams || 0), 0);
+
+      const template = await storage.createMealTemplate({
+        userId,
+        name: name.trim(),
+        mealType: mealType || null,
+        items,
+        totalCalories,
+        totalProtein,
+        totalCarbs,
+        totalFat,
+      });
+
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating meal template:", error);
+      res.status(500).json({ error: "Failed to create meal template" });
+    }
+  });
+
+  // Update a meal template
+  app.patch("/api/meal-templates/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const { name, mealType, items } = req.body;
+
+      const updates: any = {};
+      if (name !== undefined) updates.name = name.trim();
+      if (mealType !== undefined) updates.mealType = mealType;
+      if (items !== undefined) {
+        updates.items = items;
+        // Recalculate totals
+        updates.totalCalories = items.reduce((sum: number, item: any) => sum + (item.calories || 0), 0);
+        updates.totalProtein = items.reduce((sum: number, item: any) => sum + (item.proteinGrams || 0), 0);
+        updates.totalCarbs = items.reduce((sum: number, item: any) => sum + (item.carbsGrams || 0), 0);
+        updates.totalFat = items.reduce((sum: number, item: any) => sum + (item.fatGrams || 0), 0);
+      }
+
+      const template = await storage.updateMealTemplate(id, userId, updates);
+
+      if (!template) {
+        res.status(404).json({ error: "Meal template not found" });
+        return;
+      }
+
+      res.json(template);
+    } catch (error) {
+      console.error("Error updating meal template:", error);
+      res.status(500).json({ error: "Failed to update meal template" });
+    }
+  });
+
+  // Delete a meal template
+  app.delete("/api/meal-templates/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const deleted = await storage.deleteMealTemplate(id, userId);
+
+      if (!deleted) {
+        res.status(404).json({ error: "Meal template not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting meal template:", error);
+      res.status(500).json({ error: "Failed to delete meal template" });
+    }
+  });
+
+  // Log a meal template (create food entries from template)
+  app.post("/api/meal-templates/:id/log", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const { date, mealType: overrideMealType } = req.body;
+
+      const template = await storage.getMealTemplate(id, userId);
+
+      if (!template) {
+        res.status(404).json({ error: "Meal template not found" });
+        return;
+      }
+
+      const logDate = date || format(new Date(), "yyyy-MM-dd");
+      const mealType = overrideMealType || template.mealType || "snack";
+
+      // Create food entries for each item in the template
+      const items = template.items as any[];
+      const createdEntries = [];
+
+      for (const item of items) {
+        const entry = await storage.createFoodEntry({
+          userId,
+          logDate,
+          mealType,
+          foodName: item.foodName,
+          servingSize: item.servingSize,
+          servingQuantity: item.quantity || 1,
+          calories: item.calories,
+          proteinGrams: item.proteinGrams,
+          carbsGrams: item.carbsGrams,
+          fatGrams: item.fatGrams,
+        });
+        createdEntries.push(entry);
+      }
+
+      // Increment usage count
+      await storage.incrementMealTemplateUsage(id, userId);
+
+      res.json({
+        success: true,
+        entriesCreated: createdEntries.length,
+        entries: createdEntries,
+      });
+    } catch (error) {
+      console.error("Error logging meal template:", error);
+      res.status(500).json({ error: "Failed to log meal template" });
     }
   });
 
@@ -2535,6 +2730,347 @@ Already eaten today: ${todayFood.map(f => f.foodName).join(", ") || "Nothing log
     } catch (error) {
       console.error("Error calculating streaks:", error);
       res.status(500).json({ error: "Failed to calculate streaks" });
+    }
+  });
+
+  // ==================== Goals & Milestones ====================
+
+  // Get all goals (with optional status filter)
+  app.get("/api/goals", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const status = req.query.status as string | undefined;
+      const goalsData = await storage.getGoals(userId, status);
+
+      // Fetch milestones for each goal
+      const goalsWithMilestones = await Promise.all(
+        goalsData.map(async (goal) => {
+          const milestones = await storage.getMilestones(goal.id, userId);
+          return { ...goal, milestones };
+        })
+      );
+
+      res.json(goalsWithMilestones);
+    } catch (error) {
+      console.error("Error fetching goals:", error);
+      res.status(500).json({ error: "Failed to fetch goals" });
+    }
+  });
+
+  // Get a single goal with milestones
+  app.get("/api/goals/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      const goal = await storage.getGoal(id, userId);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      const milestones = await storage.getMilestones(id, userId);
+      res.json({ ...goal, milestones });
+    } catch (error) {
+      console.error("Error fetching goal:", error);
+      res.status(500).json({ error: "Failed to fetch goal" });
+    }
+  });
+
+  // Create a new goal (with optional milestones)
+  app.post("/api/goals", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { milestones: milestonesData, ...goalData } = req.body;
+
+      // Create the goal
+      const goal = await storage.createGoal({
+        ...goalData,
+        userId,
+        startDate: goalData.startDate || format(new Date(), "yyyy-MM-dd"),
+      });
+
+      // Create milestones if provided
+      const createdMilestones = [];
+      if (milestonesData && Array.isArray(milestonesData)) {
+        for (let i = 0; i < milestonesData.length; i++) {
+          const milestone = await storage.createMilestone({
+            ...milestonesData[i],
+            goalId: goal.id,
+            userId,
+            order: i,
+          });
+          createdMilestones.push(milestone);
+        }
+      }
+
+      res.status(201).json({ ...goal, milestones: createdMilestones });
+    } catch (error) {
+      console.error("Error creating goal:", error);
+      res.status(500).json({ error: "Failed to create goal" });
+    }
+  });
+
+  // Update a goal
+  app.patch("/api/goals/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const updates = req.body;
+
+      const goal = await storage.updateGoal(id, userId, updates);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      const milestones = await storage.getMilestones(id, userId);
+      res.json({ ...goal, milestones });
+    } catch (error) {
+      console.error("Error updating goal:", error);
+      res.status(500).json({ error: "Failed to update goal" });
+    }
+  });
+
+  // Delete a goal (milestones cascade delete)
+  app.delete("/api/goals/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      const deleted = await storage.deleteGoal(id, userId);
+      if (!deleted) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting goal:", error);
+      res.status(500).json({ error: "Failed to delete goal" });
+    }
+  });
+
+  // Mark goal as completed
+  app.post("/api/goals/:id/complete", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      const goal = await storage.completeGoal(id, userId);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      // Create achievement notification
+      await storage.createNotification({
+        userId,
+        type: "achievement",
+        title: "Goal Achieved!",
+        message: `Congratulations! You've completed your goal: ${goal.title}`,
+        actionUrl: "/goals",
+      });
+
+      res.json(goal);
+    } catch (error) {
+      console.error("Error completing goal:", error);
+      res.status(500).json({ error: "Failed to complete goal" });
+    }
+  });
+
+  // Mark goal as abandoned
+  app.post("/api/goals/:id/abandon", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      const goal = await storage.abandonGoal(id, userId);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      res.json(goal);
+    } catch (error) {
+      console.error("Error abandoning goal:", error);
+      res.status(500).json({ error: "Failed to abandon goal" });
+    }
+  });
+
+  // Add milestone to goal
+  app.post("/api/goals/:goalId/milestones", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { goalId } = req.params;
+
+      // Verify goal exists
+      const goal = await storage.getGoal(goalId, userId);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      // Get highest order
+      const existingMilestones = await storage.getMilestones(goalId, userId);
+      const order = existingMilestones.length;
+
+      const milestone = await storage.createMilestone({
+        ...req.body,
+        goalId,
+        userId,
+        order,
+      });
+
+      res.status(201).json(milestone);
+    } catch (error) {
+      console.error("Error creating milestone:", error);
+      res.status(500).json({ error: "Failed to create milestone" });
+    }
+  });
+
+  // Complete a milestone
+  app.post("/api/goals/:goalId/milestones/:milestoneId/complete", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { goalId, milestoneId } = req.params;
+
+      // Verify goal exists
+      const goal = await storage.getGoal(goalId, userId);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      const milestone = await storage.completeMilestone(milestoneId, userId);
+      if (!milestone) {
+        res.status(404).json({ error: "Milestone not found" });
+        return;
+      }
+
+      // Create milestone notification
+      await storage.createNotification({
+        userId,
+        type: "achievement",
+        title: "Milestone Reached!",
+        message: `You've achieved: ${milestone.title}`,
+        actionUrl: `/goals`,
+      });
+
+      res.json(milestone);
+    } catch (error) {
+      console.error("Error completing milestone:", error);
+      res.status(500).json({ error: "Failed to complete milestone" });
+    }
+  });
+
+  // Delete a milestone
+  app.delete("/api/goals/:goalId/milestones/:milestoneId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { goalId, milestoneId } = req.params;
+
+      // Verify goal exists
+      const goal = await storage.getGoal(goalId, userId);
+      if (!goal) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+
+      const deleted = await storage.deleteMilestone(milestoneId, userId);
+      if (!deleted) {
+        res.status(404).json({ error: "Milestone not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting milestone:", error);
+      res.status(500).json({ error: "Failed to delete milestone" });
+    }
+  });
+
+  // ==================== Barcode Scanner ====================
+
+  // Lookup barcode using Open Food Facts API
+  app.post("/api/barcode/lookup", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { barcode } = req.body;
+
+      if (!barcode || typeof barcode !== "string") {
+        res.status(400).json({ error: "Barcode is required" });
+        return;
+      }
+
+      // Clean the barcode (remove any non-numeric characters)
+      const cleanBarcode = barcode.replace(/\D/g, "");
+
+      if (cleanBarcode.length < 8) {
+        res.status(400).json({ error: "Invalid barcode format" });
+        return;
+      }
+
+      // Query Open Food Facts API
+      const response = await fetch(
+        `https://world.openfoodfacts.org/api/v0/product/${cleanBarcode}.json`
+      );
+
+      if (!response.ok) {
+        res.status(502).json({ error: "Failed to reach food database" });
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.status !== 1 || !data.product) {
+        res.json({
+          found: false,
+          barcode: cleanBarcode,
+          message: "Product not found in database",
+        });
+        return;
+      }
+
+      const product = data.product;
+      const nutriments = product.nutriments || {};
+
+      // Extract nutrition info (per 100g or per serving)
+      const servingSize = product.serving_size || "100g";
+      const useServing = product.serving_size && nutriments["energy-kcal_serving"];
+
+      const result = {
+        found: true,
+        barcode: cleanBarcode,
+        product: {
+          name: product.product_name || product.generic_name || "Unknown Product",
+          brand: product.brands || null,
+          servingSize,
+          // Use serving values if available, otherwise per 100g
+          calories: useServing
+            ? Math.round(nutriments["energy-kcal_serving"] || 0)
+            : Math.round(nutriments["energy-kcal_100g"] || 0),
+          protein: useServing
+            ? Math.round((nutriments["proteins_serving"] || 0) * 10) / 10
+            : Math.round((nutriments["proteins_100g"] || 0) * 10) / 10,
+          carbs: useServing
+            ? Math.round((nutriments["carbohydrates_serving"] || 0) * 10) / 10
+            : Math.round((nutriments["carbohydrates_100g"] || 0) * 10) / 10,
+          fat: useServing
+            ? Math.round((nutriments["fat_serving"] || 0) * 10) / 10
+            : Math.round((nutriments["fat_100g"] || 0) * 10) / 10,
+          fiber: useServing
+            ? Math.round((nutriments["fiber_serving"] || 0) * 10) / 10
+            : Math.round((nutriments["fiber_100g"] || 0) * 10) / 10,
+          imageUrl: product.image_front_small_url || product.image_url || null,
+          categories: product.categories || null,
+          isPer100g: !useServing,
+        },
+      };
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error looking up barcode:", error);
+      res.status(500).json({ error: "Failed to lookup barcode" });
     }
   });
 

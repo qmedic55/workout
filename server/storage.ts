@@ -15,6 +15,9 @@ import {
   profileChanges,
   healthNotes,
   bodyMeasurements,
+  mealTemplates,
+  goals,
+  milestones,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -40,6 +43,12 @@ import {
   type InsertHealthNote,
   type BodyMeasurement,
   type InsertBodyMeasurement,
+  type MealTemplate,
+  type InsertMealTemplate,
+  type Goal,
+  type InsertGoal,
+  type Milestone,
+  type InsertMilestone,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -55,7 +64,7 @@ export interface IStorage {
   // Daily Logs
   getDailyLog(userId: string, date: string): Promise<DailyLog | undefined>;
   getDailyLogs(userId: string, startDate?: string, endDate?: string): Promise<DailyLog[]>;
-  createOrUpdateDailyLog(log: InsertDailyLog): Promise<DailyLog>;
+  createOrUpdateDailyLog(log: InsertDailyLog, options?: { accumulate?: boolean }): Promise<DailyLog>;
 
   // Food Entries
   getFoodEntries(userId: string, date: string): Promise<FoodEntry[]>;
@@ -120,6 +129,32 @@ export interface IStorage {
   getBodyMeasurementsRange(userId: string, startDate: string, endDate: string): Promise<BodyMeasurement[]>;
   createOrUpdateBodyMeasurement(measurement: InsertBodyMeasurement): Promise<BodyMeasurement>;
   deleteBodyMeasurement(id: string, userId: string): Promise<boolean>;
+
+  // Meal Templates
+  getMealTemplates(userId: string): Promise<MealTemplate[]>;
+  getMealTemplate(id: string, userId: string): Promise<MealTemplate | undefined>;
+  createMealTemplate(template: InsertMealTemplate): Promise<MealTemplate>;
+  updateMealTemplate(id: string, userId: string, updates: Partial<InsertMealTemplate>): Promise<MealTemplate | undefined>;
+  deleteMealTemplate(id: string, userId: string): Promise<boolean>;
+  incrementMealTemplateUsage(id: string, userId: string): Promise<void>;
+
+  // Goals
+  getGoals(userId: string, status?: string): Promise<Goal[]>;
+  getGoal(id: string, userId: string): Promise<Goal | undefined>;
+  getActiveGoals(userId: string, category?: string): Promise<Goal[]>;
+  createGoal(goal: InsertGoal): Promise<Goal>;
+  updateGoal(id: string, userId: string, updates: Partial<InsertGoal>): Promise<Goal | undefined>;
+  deleteGoal(id: string, userId: string): Promise<boolean>;
+  completeGoal(id: string, userId: string): Promise<Goal | undefined>;
+  abandonGoal(id: string, userId: string): Promise<Goal | undefined>;
+
+  // Milestones
+  getMilestones(goalId: string, userId: string): Promise<Milestone[]>;
+  getMilestone(id: string, userId: string): Promise<Milestone | undefined>;
+  createMilestone(milestone: InsertMilestone): Promise<Milestone>;
+  updateMilestone(id: string, userId: string, updates: Partial<InsertMilestone>): Promise<Milestone | undefined>;
+  deleteMilestone(id: string, userId: string): Promise<boolean>;
+  completeMilestone(id: string, userId: string): Promise<Milestone | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -183,7 +218,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async createOrUpdateDailyLog(log: InsertDailyLog): Promise<DailyLog> {
+  async createOrUpdateDailyLog(log: InsertDailyLog, options?: { accumulate?: boolean }): Promise<DailyLog> {
     const existing = await this.getDailyLog(log.userId, log.logDate);
 
     if (existing) {
@@ -191,14 +226,34 @@ export class DatabaseStorage implements IStorage {
       // This preserves existing values for fields not being updated
       const updates: Record<string, any> = {};
 
-      // List all possible fields and only include non-undefined ones
-      const fields = [
+      // Fields that should ACCUMULATE when options.accumulate is true
+      // (e.g., steps: 7500 + 1000 = 8500)
+      const accumulativeFields = ['steps', 'waterLiters'] as const;
+
+      // Fields that should REPLACE (not accumulate)
+      const replaceFields = [
         'weightKg', 'caloriesConsumed', 'proteinGrams', 'carbsGrams', 'fatGrams',
-        'steps', 'sleepHours', 'sleepQuality', 'energyLevel', 'stressLevel',
-        'moodRating', 'workoutCompleted', 'workoutType', 'notes', 'waterLiters'
+        'sleepHours', 'sleepQuality', 'energyLevel', 'stressLevel',
+        'moodRating', 'workoutCompleted', 'workoutType', 'notes'
       ] as const;
 
-      for (const field of fields) {
+      // Handle accumulative fields - ADD to existing value if accumulate option is set
+      for (const field of accumulativeFields) {
+        const newValue = log[field as keyof InsertDailyLog];
+        if (newValue !== undefined && typeof newValue === 'number') {
+          const existingValue = existing[field as keyof DailyLog];
+          if (options?.accumulate && typeof existingValue === 'number') {
+            // Accumulate: add new value to existing
+            updates[field] = existingValue + newValue;
+          } else {
+            // Replace: use new value directly
+            updates[field] = newValue;
+          }
+        }
+      }
+
+      // Handle replace fields - always replace existing value
+      for (const field of replaceFields) {
         if (log[field as keyof InsertDailyLog] !== undefined) {
           updates[field] = log[field as keyof InsertDailyLog];
         }
@@ -693,6 +748,180 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId)))
       .returning();
     return result.length > 0;
+  }
+
+  // Meal Templates
+  async getMealTemplates(userId: string): Promise<MealTemplate[]> {
+    return db
+      .select()
+      .from(mealTemplates)
+      .where(eq(mealTemplates.userId, userId))
+      .orderBy(desc(mealTemplates.usageCount), desc(mealTemplates.lastUsedAt));
+  }
+
+  async getMealTemplate(id: string, userId: string): Promise<MealTemplate | undefined> {
+    const result = await db
+      .select()
+      .from(mealTemplates)
+      .where(and(eq(mealTemplates.id, id), eq(mealTemplates.userId, userId)));
+    return result[0];
+  }
+
+  async createMealTemplate(template: InsertMealTemplate): Promise<MealTemplate> {
+    const result = await db.insert(mealTemplates).values(template).returning();
+    return result[0];
+  }
+
+  async updateMealTemplate(id: string, userId: string, updates: Partial<InsertMealTemplate>): Promise<MealTemplate | undefined> {
+    const result = await db
+      .update(mealTemplates)
+      .set(updates)
+      .where(and(eq(mealTemplates.id, id), eq(mealTemplates.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteMealTemplate(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(mealTemplates)
+      .where(and(eq(mealTemplates.id, id), eq(mealTemplates.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async incrementMealTemplateUsage(id: string, userId: string): Promise<void> {
+    const template = await this.getMealTemplate(id, userId);
+    if (template) {
+      await db
+        .update(mealTemplates)
+        .set({
+          usageCount: (template.usageCount || 0) + 1,
+          lastUsedAt: new Date(),
+        })
+        .where(eq(mealTemplates.id, id));
+    }
+  }
+
+  // Goals
+  async getGoals(userId: string, status?: string): Promise<Goal[]> {
+    const conditions = [eq(goals.userId, userId)];
+    if (status) {
+      conditions.push(eq(goals.status, status));
+    }
+    return db
+      .select()
+      .from(goals)
+      .where(and(...conditions))
+      .orderBy(desc(goals.createdAt));
+  }
+
+  async getGoal(id: string, userId: string): Promise<Goal | undefined> {
+    const result = await db
+      .select()
+      .from(goals)
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)));
+    return result[0];
+  }
+
+  async getActiveGoals(userId: string, category?: string): Promise<Goal[]> {
+    const conditions = [eq(goals.userId, userId), eq(goals.status, "active")];
+    if (category) {
+      conditions.push(eq(goals.category, category));
+    }
+    return db
+      .select()
+      .from(goals)
+      .where(and(...conditions))
+      .orderBy(desc(goals.createdAt));
+  }
+
+  async createGoal(goal: InsertGoal): Promise<Goal> {
+    const result = await db.insert(goals).values(goal).returning();
+    return result[0];
+  }
+
+  async updateGoal(id: string, userId: string, updates: Partial<InsertGoal>): Promise<Goal | undefined> {
+    const result = await db
+      .update(goals)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteGoal(id: string, userId: string): Promise<boolean> {
+    // Milestones will be deleted automatically due to CASCADE
+    const result = await db
+      .delete(goals)
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async completeGoal(id: string, userId: string): Promise<Goal | undefined> {
+    const result = await db
+      .update(goals)
+      .set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async abandonGoal(id: string, userId: string): Promise<Goal | undefined> {
+    const result = await db
+      .update(goals)
+      .set({ status: "abandoned", updatedAt: new Date() })
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  // Milestones
+  async getMilestones(goalId: string, userId: string): Promise<Milestone[]> {
+    return db
+      .select()
+      .from(milestones)
+      .where(and(eq(milestones.goalId, goalId), eq(milestones.userId, userId)))
+      .orderBy(milestones.order);
+  }
+
+  async getMilestone(id: string, userId: string): Promise<Milestone | undefined> {
+    const result = await db
+      .select()
+      .from(milestones)
+      .where(and(eq(milestones.id, id), eq(milestones.userId, userId)));
+    return result[0];
+  }
+
+  async createMilestone(milestone: InsertMilestone): Promise<Milestone> {
+    const result = await db.insert(milestones).values(milestone).returning();
+    return result[0];
+  }
+
+  async updateMilestone(id: string, userId: string, updates: Partial<InsertMilestone>): Promise<Milestone | undefined> {
+    const result = await db
+      .update(milestones)
+      .set(updates)
+      .where(and(eq(milestones.id, id), eq(milestones.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteMilestone(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(milestones)
+      .where(and(eq(milestones.id, id), eq(milestones.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async completeMilestone(id: string, userId: string): Promise<Milestone | undefined> {
+    const result = await db
+      .update(milestones)
+      .set({ isCompleted: true, completedAt: new Date() })
+      .where(and(eq(milestones.id, id), eq(milestones.userId, userId)))
+      .returning();
+    return result[0];
   }
 }
 

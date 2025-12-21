@@ -12,11 +12,20 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Utensils, Target, Calculator, Search } from "lucide-react";
+import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode } from "lucide-react";
 import { FoodSearch } from "@/components/food-search";
-import type { FoodEntry, UserProfile, DailyLog } from "@shared/schema";
+import { BarcodeScanner } from "@/components/barcode-scanner";
+import type { FoodEntry, UserProfile, DailyLog, MealTemplate } from "@shared/schema";
 
 const foodEntrySchema = z.object({
   mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]),
@@ -95,8 +104,208 @@ function NutritionSkeleton() {
   );
 }
 
+// Meal Template Card Component
+function MealTemplateCard({
+  template,
+  onLog,
+  onDelete,
+  isLogging,
+}: {
+  template: MealTemplate;
+  onLog: (id: string, mealType: string) => void;
+  onDelete: (id: string) => void;
+  isLogging: boolean;
+}) {
+  const [selectedMealType, setSelectedMealType] = useState(template.mealType || "snack");
+
+  return (
+    <div className="p-4 rounded-lg border bg-card">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <h4 className="font-medium">{template.name}</h4>
+          <p className="text-xs text-muted-foreground">
+            {(template.items as any[]).length} items • Used {template.usageCount || 0} times
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+          onClick={() => onDelete(template.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        <Badge variant="secondary">{template.totalCalories || 0} kcal</Badge>
+        <span className="text-xs text-muted-foreground">
+          P: {template.totalProtein?.toFixed(0) || 0}g | C: {template.totalCarbs?.toFixed(0) || 0}g | F: {template.totalFat?.toFixed(0) || 0}g
+        </span>
+      </div>
+
+      <div className="flex gap-2">
+        <Select value={selectedMealType} onValueChange={setSelectedMealType}>
+          <SelectTrigger className="w-28 h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="breakfast">Breakfast</SelectItem>
+            <SelectItem value="lunch">Lunch</SelectItem>
+            <SelectItem value="dinner">Dinner</SelectItem>
+            <SelectItem value="snack">Snack</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          size="sm"
+          onClick={() => onLog(template.id, selectedMealType)}
+          disabled={isLogging}
+          className="flex-1"
+        >
+          <Plus className="h-4 w-4 mr-1" />
+          Log Meal
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Create Template Dialog
+function CreateTemplateDialog({
+  open,
+  onOpenChange,
+  foodEntries,
+  selectedMeal,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  foodEntries: FoodEntry[];
+  selectedMeal: string;
+}) {
+  const { toast } = useToast();
+  const [templateName, setTemplateName] = useState("");
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { name: string; mealType: string; items: any[] }) => {
+      const response = await apiRequest("POST", "/api/meal-templates", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
+      toast({ title: "Template saved", description: "Your meal template has been created." });
+      onOpenChange(false);
+      setTemplateName("");
+      setSelectedItems([]);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleCreate = () => {
+    if (!templateName.trim()) {
+      toast({ title: "Error", description: "Please enter a template name", variant: "destructive" });
+      return;
+    }
+
+    const itemsToSave = selectedItems.length > 0
+      ? foodEntries.filter(e => selectedItems.includes(e.id))
+      : foodEntries.filter(e => e.mealType === selectedMeal);
+
+    if (itemsToSave.length === 0) {
+      toast({ title: "Error", description: "No food items selected", variant: "destructive" });
+      return;
+    }
+
+    createMutation.mutate({
+      name: templateName.trim(),
+      mealType: selectedMeal,
+      items: itemsToSave.map(e => ({
+        foodName: e.foodName,
+        servingSize: e.servingSize,
+        quantity: e.servingQuantity || 1,
+        calories: e.calories,
+        proteinGrams: e.proteinGrams,
+        carbsGrams: e.carbsGrams,
+        fatGrams: e.fatGrams,
+      })),
+    });
+  };
+
+  const mealItems = foodEntries.filter(e => e.mealType === selectedMeal);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Save as Meal Template</DialogTitle>
+          <DialogDescription>
+            Save your current {selectedMeal} as a template for quick logging later.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Template Name</label>
+            <Input
+              placeholder="e.g., Morning Protein Shake"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Foods to include</label>
+            <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+              {mealItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No foods logged for {selectedMeal} yet.</p>
+              ) : (
+                mealItems.map((entry) => (
+                  <label key={entry.id} className="flex items-center gap-2 p-2 rounded border cursor-pointer hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.length === 0 || selectedItems.includes(entry.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedItems(prev => prev.length === 0 ? [entry.id] : [...prev, entry.id]);
+                        } else {
+                          setSelectedItems(prev => prev.filter(id => id !== entry.id));
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{entry.foodName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.calories || 0} kcal • P: {entry.proteinGrams?.toFixed(0) || 0}g
+                      </p>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <Button
+            onClick={handleCreate}
+            disabled={createMutation.isPending || mealItems.length === 0}
+            className="w-full"
+          >
+            <BookmarkPlus className="h-4 w-4 mr-2" />
+            {createMutation.isPending ? "Saving..." : "Save Template"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Nutrition() {
   const [selectedMeal, setSelectedMeal] = useState<"breakfast" | "lunch" | "dinner" | "snack">("breakfast");
+  const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
+  const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false);
   const { toast } = useToast();
   const today = format(new Date(), "yyyy-MM-dd");
 
@@ -112,6 +321,40 @@ export default function Nutrition() {
 
   const { data: foodEntries = [], isLoading } = useQuery<FoodEntry[]>({
     queryKey: ["/api/food-entries", today],
+  });
+
+  // Meal templates query and mutations
+  const { data: mealTemplates = [] } = useQuery<MealTemplate[]>({
+    queryKey: ["/api/meal-templates"],
+  });
+
+  const logTemplateMutation = useMutation({
+    mutationFn: async ({ id, mealType }: { id: string; mealType: string }) => {
+      const response = await apiRequest("POST", `/api/meal-templates/${id}/log`, { mealType });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
+      toast({ title: "Meal logged", description: "Template foods added to your log." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/meal-templates/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
+      toast({ title: "Deleted", description: "Meal template removed." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
   });
 
   const form = useForm<FoodEntryFormData>({
@@ -302,12 +545,23 @@ export default function Nutrition() {
                   )}
                 />
 
-                {/* Food Database Search */}
+                {/* Food Database Search + Barcode Scanner */}
                 <div className="space-y-2">
-                  <FormLabel className="flex items-center gap-2">
-                    <Search className="h-4 w-4" />
-                    Search Food Database
-                  </FormLabel>
+                  <div className="flex items-center justify-between">
+                    <FormLabel className="flex items-center gap-2">
+                      <Search className="h-4 w-4" />
+                      Search Food Database
+                    </FormLabel>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBarcodeScannerOpen(true)}
+                    >
+                      <ScanBarcode className="h-4 w-4 mr-1" />
+                      Scan
+                    </Button>
+                  </div>
                   <FoodSearch onSelect={handleFoodSelect} />
                 </div>
 
@@ -456,6 +710,59 @@ export default function Nutrition() {
         </CardContent>
       </Card>
 
+      {/* My Meals / Saved Templates */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Bookmark className="h-5 w-5" />
+                My Meals
+              </CardTitle>
+              <CardDescription>Saved meal templates for quick logging</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCreateTemplateOpen(true)}
+              disabled={foodEntries.length === 0}
+            >
+              <BookmarkPlus className="h-4 w-4 mr-2" />
+              Save Current Meal
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {mealTemplates.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground">
+              <Bookmark className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No saved meal templates yet.</p>
+              <p className="text-xs mt-1">Log some foods, then click "Save Current Meal" to create a template.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {mealTemplates.map((template) => (
+                <MealTemplateCard
+                  key={template.id}
+                  template={template}
+                  onLog={(id, mealType) => logTemplateMutation.mutate({ id, mealType })}
+                  onDelete={(id) => deleteTemplateMutation.mutate(id)}
+                  isLogging={logTemplateMutation.isPending}
+                />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create Template Dialog */}
+      <CreateTemplateDialog
+        open={createTemplateOpen}
+        onOpenChange={setCreateTemplateOpen}
+        foodEntries={foodEntries}
+        selectedMeal={selectedMeal}
+      />
+
       <div className="grid gap-6 md:grid-cols-2">
         {(["breakfast", "lunch", "dinner", "snack"] as const).map((meal) => (
           <Card key={meal}>
@@ -483,6 +790,13 @@ export default function Nutrition() {
           </Card>
         ))}
       </div>
+
+      {/* Barcode Scanner */}
+      <BarcodeScanner
+        open={barcodeScannerOpen}
+        onOpenChange={setBarcodeScannerOpen}
+        onProductSelect={handleFoodSelect}
+      />
     </div>
   );
 }

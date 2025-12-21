@@ -27,6 +27,7 @@ const Devices = lazy(() => import("@/pages/devices"));
 const Learn = lazy(() => import("@/pages/learn"));
 const Settings = lazy(() => import("@/pages/settings"));
 const Profile = lazy(() => import("@/pages/profile"));
+const Goals = lazy(() => import("@/pages/goals"));
 const Playground = lazy(() => import("@/pages/playground"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -54,6 +55,7 @@ function Router() {
         <Route path="/learn" component={Learn} />
         <Route path="/settings" component={Settings} />
         <Route path="/profile" component={Profile} />
+        <Route path="/goals" component={Goals} />
         <Route path="/playground" component={Playground} />
         <Route component={NotFound} />
       </Switch>
