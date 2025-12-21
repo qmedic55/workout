@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -30,6 +31,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ShareButton } from "@/components/share-button";
+import { createGoalCardData } from "@/hooks/use-share-card";
 import {
   Target,
   Plus,
@@ -43,8 +46,9 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  PartyPopper,
 } from "lucide-react";
-import type { Goal, Milestone } from "@shared/schema";
+import type { Goal, Milestone, PublicProfile } from "@shared/schema";
 
 type GoalWithMilestones = Goal & { milestones: Milestone[] };
 
@@ -550,9 +554,14 @@ export default function Goals() {
   const { toast } = useToast();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [celebrationGoal, setCelebrationGoal] = useState<GoalWithMilestones | null>(null);
 
   const { data: goals = [], isLoading } = useQuery<GoalWithMilestones[]>({
     queryKey: ["/api/goals", statusFilter !== "all" ? `?status=${statusFilter}` : ""],
+  });
+
+  const { data: publicProfile } = useQuery<PublicProfile>({
+    queryKey: ["/api/public-profile"],
   });
 
   const completeMutation = useMutation({
@@ -560,8 +569,13 @@ export default function Goals() {
       const response = await apiRequest("POST", `/api/goals/${id}/complete`);
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
+      // Find the goal that was just completed to show in celebration modal
+      const completedGoal = goals.find(g => g.id === id);
+      if (completedGoal) {
+        setCelebrationGoal(completedGoal);
+      }
       toast({ title: "Goal completed!", description: "Congratulations on reaching your goal!" });
     },
   });
@@ -680,6 +694,71 @@ export default function Goals() {
       )}
 
       <CreateGoalDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+
+      {/* Goal Completion Celebration Modal */}
+      <Dialog open={!!celebrationGoal} onOpenChange={(open) => !open && setCelebrationGoal(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mx-auto mb-4 p-4 rounded-full bg-primary/10">
+              <PartyPopper className="h-12 w-12 text-primary" />
+            </div>
+            <DialogTitle className="text-center text-2xl">Goal Achieved!</DialogTitle>
+            <DialogDescription className="text-center">
+              Congratulations on completing your goal!
+            </DialogDescription>
+          </DialogHeader>
+
+          {celebrationGoal && (
+            <div className="space-y-4">
+              <Card className="bg-muted/50">
+                <CardContent className="pt-4">
+                  <h3 className="font-semibold text-lg mb-2">{celebrationGoal.title}</h3>
+                  {celebrationGoal.description && (
+                    <p className="text-sm text-muted-foreground mb-3">{celebrationGoal.description}</p>
+                  )}
+                  {celebrationGoal.startValue !== null && celebrationGoal.targetValue && (
+                    <div className="flex justify-between text-sm">
+                      <span>Started: {celebrationGoal.startValue} {celebrationGoal.targetUnit}</span>
+                      <span>Achieved: {celebrationGoal.targetValue} {celebrationGoal.targetUnit}</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <p className="text-center text-muted-foreground text-sm">
+                Share your achievement with friends and family!
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            {celebrationGoal && (
+              <ShareButton
+                cardData={createGoalCardData(
+                  {
+                    title: celebrationGoal.title,
+                    startValue: celebrationGoal.startValue ?? undefined,
+                    targetValue: celebrationGoal.targetValue ?? undefined,
+                    targetUnit: celebrationGoal.targetUnit ?? undefined,
+                    startDate: celebrationGoal.startDate,
+                    completedAt: new Date().toISOString(),
+                  },
+                  publicProfile?.username || undefined
+                )}
+                variant="default"
+                className="w-full"
+              />
+            )}
+            <Button
+              variant="outline"
+              onClick={() => setCelebrationGoal(null)}
+              className="w-full"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

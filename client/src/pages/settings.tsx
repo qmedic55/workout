@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
 import { User, Target, MessageSquare, Moon, Sun, Save, Download, FileJson, FileSpreadsheet } from "lucide-react";
 import { ProfileChangesHistory } from "@/components/profile-changes-history";
+import { PublicProfileSettings } from "@/components/public-profile-settings";
 import type { UserProfile } from "@shared/schema";
 
 const settingsSchema = z.object({
@@ -396,6 +397,8 @@ export default function Settings() {
               </p>
             </CardContent>
           </Card>
+
+          <PublicProfileSettings />
 
           <ProfileChangesHistory limit={10} />
 

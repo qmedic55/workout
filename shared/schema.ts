@@ -402,6 +402,38 @@ export const milestones = pgTable("milestones", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Public profiles - for social sharing and public profile URLs
+export const publicProfiles = pgTable("public_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique().references(() => users.id),
+
+  // Public URL: vitalpath.app/u/{username}
+  username: varchar("username", { length: 30 }).unique(),
+  displayName: varchar("display_name", { length: 50 }),
+  bio: text("bio"),
+
+  // Privacy controls - what to show publicly
+  showWeight: boolean("show_weight").default(false),
+  showGoals: boolean("show_goals").default(true),
+  showStreaks: boolean("show_streaks").default(true),
+  showWorkoutStats: boolean("show_workout_stats").default(true),
+  showProgress: boolean("show_progress").default(false),
+  showMilestones: boolean("show_milestones").default(true),
+
+  isPublic: boolean("is_public").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Share events - analytics for social sharing
+export const shareEvents = pgTable("share_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  cardType: text("card_type").notNull(), // progress, goal, streak, milestone, workout
+  platform: text("platform"), // native, twitter, download, copy
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Health notes - user-submitted context notes for AI coaching
 export const healthNotes = pgTable("health_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -474,6 +506,11 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   mealTemplates: many(mealTemplates),
   goals: many(goals),
   milestones: many(milestones),
+  publicProfile: one(publicProfiles, {
+    fields: [users.id],
+    references: [publicProfiles.userId],
+  }),
+  shareEvents: many(shareEvents),
 }));
 
 export const mealTemplatesRelations = relations(mealTemplates, ({ one }) => ({
@@ -505,6 +542,20 @@ export const milestonesRelations = relations(milestones, ({ one }) => ({
 export const healthNotesRelations = relations(healthNotes, ({ one }) => ({
   user: one(users, {
     fields: [healthNotes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const publicProfilesRelations = relations(publicProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [publicProfiles.userId],
+    references: [users.id],
+  }),
+}));
+
+export const shareEventsRelations = relations(shareEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [shareEvents.userId],
     references: [users.id],
   }),
 }));
@@ -683,6 +734,17 @@ export const insertMilestoneSchema = createInsertSchema(milestones).omit({
   completedAt: true,
 });
 
+export const insertPublicProfileSchema = createInsertSchema(publicProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertShareEventSchema = createInsertSchema(shareEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -730,3 +792,9 @@ export type Goal = typeof goals.$inferSelect;
 
 export type InsertMilestone = z.infer<typeof insertMilestoneSchema>;
 export type Milestone = typeof milestones.$inferSelect;
+
+export type InsertPublicProfile = z.infer<typeof insertPublicProfileSchema>;
+export type PublicProfile = typeof publicProfiles.$inferSelect;
+
+export type InsertShareEvent = z.infer<typeof insertShareEventSchema>;
+export type ShareEvent = typeof shareEvents.$inferSelect;

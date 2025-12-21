@@ -3134,5 +3134,259 @@ Already eaten today: ${todayFood.map(f => f.foodName).join(", ") || "Nothing log
     }
   });
 
+  // ==================== Public Profiles & Sharing ====================
+
+  // Get current user's public profile settings
+  app.get("/api/public-profile", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const publicProfile = await storage.getPublicProfile(userId);
+      res.json(publicProfile || null);
+    } catch (error) {
+      console.error("Error fetching public profile:", error);
+      res.status(500).json({ error: "Failed to fetch public profile" });
+    }
+  });
+
+  // Create or update public profile settings
+  app.post("/api/public-profile", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const {
+        username,
+        displayName,
+        bio,
+        showWeight,
+        showGoals,
+        showStreaks,
+        showWorkoutStats,
+        showProgress,
+        showMilestones,
+        isPublic,
+      } = req.body;
+
+      // Validate username if provided
+      if (username) {
+        // Check format: 3-30 chars, alphanumeric and underscores only
+        const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+        if (!usernameRegex.test(username)) {
+          res.status(400).json({
+            error: "Username must be 3-30 characters, letters, numbers, and underscores only",
+          });
+          return;
+        }
+
+        // Check availability
+        const isAvailable = await storage.isUsernameAvailable(username);
+        const existing = await storage.getPublicProfile(userId);
+
+        // Allow if it's the user's own current username
+        if (!isAvailable && existing?.username?.toLowerCase() !== username.toLowerCase()) {
+          res.status(400).json({ error: "Username is already taken" });
+          return;
+        }
+      }
+
+      // Check if profile exists
+      const existingProfile = await storage.getPublicProfile(userId);
+
+      let profile;
+      if (existingProfile) {
+        // Update existing profile
+        profile = await storage.updatePublicProfile(userId, {
+          username,
+          displayName,
+          bio,
+          showWeight,
+          showGoals,
+          showStreaks,
+          showWorkoutStats,
+          showProgress,
+          showMilestones,
+          isPublic,
+        });
+      } else {
+        // Create new profile
+        profile = await storage.createPublicProfile({
+          userId,
+          username,
+          displayName,
+          bio,
+          showWeight: showWeight ?? false,
+          showGoals: showGoals ?? true,
+          showStreaks: showStreaks ?? true,
+          showWorkoutStats: showWorkoutStats ?? true,
+          showProgress: showProgress ?? false,
+          showMilestones: showMilestones ?? true,
+          isPublic: isPublic ?? false,
+        });
+      }
+
+      res.json(profile);
+    } catch (error) {
+      console.error("Error saving public profile:", error);
+      res.status(500).json({ error: "Failed to save public profile" });
+    }
+  });
+
+  // Check username availability
+  app.get("/api/public-profile/check/:username", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { username } = req.params;
+      const userId = getUserId(req);
+
+      // Check format
+      const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+      if (!usernameRegex.test(username)) {
+        res.json({ available: false, reason: "Invalid format" });
+        return;
+      }
+
+      const isAvailable = await storage.isUsernameAvailable(username);
+
+      // Check if it's the user's own current username
+      const existing = await storage.getPublicProfile(userId);
+      const isOwnUsername = existing?.username?.toLowerCase() === username.toLowerCase();
+
+      res.json({
+        available: isAvailable || isOwnUsername,
+        reason: isAvailable || isOwnUsername ? null : "Username is taken",
+      });
+    } catch (error) {
+      console.error("Error checking username:", error);
+      res.status(500).json({ error: "Failed to check username" });
+    }
+  });
+
+  // Get public profile by username (unauthenticated - for public viewing)
+  app.get("/api/u/:username", async (req: Request, res: Response) => {
+    try {
+      const { username } = req.params;
+      const publicProfile = await storage.getPublicProfileByUsername(username);
+
+      if (!publicProfile || !publicProfile.isPublic) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      // Fetch public data based on privacy settings
+      const userId = publicProfile.userId;
+      const profile = await storage.getProfile(userId);
+
+      // Build response based on privacy settings
+      const publicData: any = {
+        username: publicProfile.username,
+        displayName: publicProfile.displayName || profile?.firstName || "Anonymous",
+        bio: publicProfile.bio,
+      };
+
+      if (publicProfile.showWeight && profile) {
+        publicData.currentWeight = profile.currentWeightKg;
+        publicData.targetWeight = profile.targetWeightKg;
+      }
+
+      if (publicProfile.showStreaks) {
+        // Calculate current streak
+        const endDate = format(new Date(), "yyyy-MM-dd");
+        const startDate = format(subDays(new Date(), 60), "yyyy-MM-dd");
+        const logs = await storage.getDailyLogs(userId, startDate, endDate);
+
+        let currentStreak = 0;
+        const loggingDates = new Set(logs.map(l => l.logDate));
+        for (let i = 0; i < 60; i++) {
+          const checkDate = format(subDays(new Date(), i), "yyyy-MM-dd");
+          if (loggingDates.has(checkDate)) {
+            currentStreak++;
+          } else if (i > 0) {
+            break;
+          }
+        }
+        publicData.currentStreak = currentStreak;
+      }
+
+      if (publicProfile.showWorkoutStats) {
+        // Get workout stats
+        const endDate = format(new Date(), "yyyy-MM-dd");
+        const startDate = format(subDays(new Date(), 30), "yyyy-MM-dd");
+        const exerciseLogs = await storage.getExerciseLogsRange(userId, startDate, endDate);
+        const workoutDays = new Set(exerciseLogs.map(e => e.logDate)).size;
+        publicData.workoutsLast30Days = workoutDays;
+      }
+
+      if (publicProfile.showGoals) {
+        // Get active goals count
+        const goals = await storage.getActiveGoals(userId);
+        publicData.activeGoals = goals.length;
+        publicData.completedGoals = (await storage.getGoals(userId, "completed")).length;
+      }
+
+      if (publicProfile.showMilestones) {
+        // Get recent milestone completions
+        const goals = await storage.getGoals(userId);
+        let completedMilestones = 0;
+        for (const goal of goals) {
+          const milestones = await storage.getMilestones(goal.id, userId);
+          completedMilestones += milestones.filter(m => m.isCompleted).length;
+        }
+        publicData.completedMilestones = completedMilestones;
+      }
+
+      if (publicProfile.showProgress && profile) {
+        // Show weight change over last 30 days
+        const endDate = format(new Date(), "yyyy-MM-dd");
+        const startDate = format(subDays(new Date(), 30), "yyyy-MM-dd");
+        const logs = await storage.getDailyLogs(userId, startDate, endDate);
+        const logsWithWeight = logs.filter(l => l.weightKg);
+
+        if (logsWithWeight.length >= 2) {
+          const oldest = logsWithWeight[logsWithWeight.length - 1];
+          const newest = logsWithWeight[0];
+          publicData.weightChange30Days = newest.weightKg! - oldest.weightKg!;
+        }
+      }
+
+      res.json(publicData);
+    } catch (error) {
+      console.error("Error fetching public profile:", error);
+      res.status(500).json({ error: "Failed to fetch profile" });
+    }
+  });
+
+  // Log share event (for analytics)
+  app.post("/api/share/log", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { cardType, platform } = req.body;
+
+      if (!cardType) {
+        res.status(400).json({ error: "Card type is required" });
+        return;
+      }
+
+      const event = await storage.createShareEvent({
+        userId,
+        cardType,
+        platform: platform || "unknown",
+      });
+
+      res.json({ success: true, eventId: event.id });
+    } catch (error) {
+      console.error("Error logging share event:", error);
+      res.status(500).json({ error: "Failed to log share event" });
+    }
+  });
+
+  // Get share events for current user (analytics)
+  app.get("/api/share/events", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const events = await storage.getShareEvents(userId);
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching share events:", error);
+      res.status(500).json({ error: "Failed to fetch share events" });
+    }
+  });
+
   return httpServer;
 }

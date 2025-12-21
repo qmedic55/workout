@@ -31,7 +31,9 @@ import { format, subDays, parseISO } from "date-fns";
 import { TrendingDown, TrendingUp, Minus, Scale, Flame, Footprints, Moon, Ruler, Plus, ArrowUp, ArrowDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { DailyLog, UserProfile, BodyMeasurement } from "@shared/schema";
+import { ShareButton } from "@/components/share-button";
+import { createProgressCardData } from "@/hooks/use-share-card";
+import type { DailyLog, UserProfile, BodyMeasurement, PublicProfile } from "@shared/schema";
 
 type TimeRange = "7d" | "30d" | "90d";
 
@@ -496,6 +498,10 @@ export default function Progress() {
     queryKey: ["/api/profile"],
   });
 
+  const { data: publicProfile } = useQuery<PublicProfile>({
+    queryKey: ["/api/public-profile"],
+  });
+
   if (isLoading) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
@@ -551,7 +557,7 @@ export default function Progress() {
           <p className="text-muted-foreground">Monitor your health journey over time</p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           {(["7d", "30d", "90d"] as TimeRange[]).map((range) => (
             <Button
               key={range}
@@ -563,6 +569,20 @@ export default function Progress() {
               {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
             </Button>
           ))}
+          <ShareButton
+            cardData={createProgressCardData(
+              {
+                weightChange: avgWeight(secondHalf) && avgWeight(firstHalf)
+                  ? (avgWeight(secondHalf)! - avgWeight(firstHalf)!)
+                  : undefined,
+                workoutsThisWeek: sortedLogs.filter(l => l.workoutCompleted).length,
+                stepsAverage: avgSteps(sortedLogs),
+              },
+              timeRange === "7d" ? "week" : "month",
+              publicProfile?.username || undefined
+            )}
+            size="sm"
+          />
         </div>
       </div>
 

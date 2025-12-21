@@ -18,6 +18,8 @@ import {
   mealTemplates,
   goals,
   milestones,
+  publicProfiles,
+  shareEvents,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -49,6 +51,10 @@ import {
   type InsertGoal,
   type Milestone,
   type InsertMilestone,
+  type PublicProfile,
+  type InsertPublicProfile,
+  type ShareEvent,
+  type InsertShareEvent,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -157,6 +163,17 @@ export interface IStorage {
   updateMilestone(id: string, userId: string, updates: Partial<InsertMilestone>): Promise<Milestone | undefined>;
   deleteMilestone(id: string, userId: string): Promise<boolean>;
   completeMilestone(id: string, userId: string): Promise<Milestone | undefined>;
+
+  // Public Profiles
+  getPublicProfile(userId: string): Promise<PublicProfile | undefined>;
+  getPublicProfileByUsername(username: string): Promise<PublicProfile | undefined>;
+  createPublicProfile(profile: InsertPublicProfile): Promise<PublicProfile>;
+  updatePublicProfile(userId: string, updates: Partial<InsertPublicProfile>): Promise<PublicProfile | undefined>;
+  isUsernameAvailable(username: string): Promise<boolean>;
+
+  // Share Events
+  createShareEvent(event: InsertShareEvent): Promise<ShareEvent>;
+  getShareEvents(userId: string, limit?: number): Promise<ShareEvent[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -940,6 +957,83 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(milestones.id, id), eq(milestones.userId, userId)))
       .returning();
     return result[0];
+  }
+
+  // Public Profiles
+  async getPublicProfile(userId: string): Promise<PublicProfile | undefined> {
+    const result = await db
+      .select()
+      .from(publicProfiles)
+      .where(eq(publicProfiles.userId, userId));
+    return result[0];
+  }
+
+  async getPublicProfileByUsername(username: string): Promise<PublicProfile | undefined> {
+    const result = await db
+      .select()
+      .from(publicProfiles)
+      .where(eq(publicProfiles.username, username.toLowerCase()));
+    return result[0];
+  }
+
+  async createPublicProfile(profile: InsertPublicProfile): Promise<PublicProfile> {
+    // Ensure username is lowercase
+    const normalizedProfile = {
+      ...profile,
+      username: profile.username?.toLowerCase(),
+    };
+    const result = await db.insert(publicProfiles).values(normalizedProfile).returning();
+    return result[0];
+  }
+
+  async updatePublicProfile(userId: string, updates: Partial<InsertPublicProfile>): Promise<PublicProfile | undefined> {
+    // Ensure username is lowercase if provided
+    const normalizedUpdates = {
+      ...updates,
+      username: updates.username?.toLowerCase(),
+      updatedAt: new Date(),
+    };
+    const result = await db
+      .update(publicProfiles)
+      .set(normalizedUpdates)
+      .where(eq(publicProfiles.userId, userId))
+      .returning();
+    return result[0];
+  }
+
+  async isUsernameAvailable(username: string): Promise<boolean> {
+    const normalized = username.toLowerCase();
+
+    // Reserved usernames
+    const reserved = [
+      'admin', 'vitalpath', 'api', 'app', 'www', 'help', 'support',
+      'settings', 'profile', 'login', 'logout', 'signup', 'register',
+      'dashboard', 'home', 'about', 'contact', 'terms', 'privacy',
+      'user', 'users', 'public', 'share', 'workout', 'workouts',
+      'nutrition', 'progress', 'goals', 'chat', 'devices', 'learn'
+    ];
+
+    if (reserved.includes(normalized)) {
+      return false;
+    }
+
+    const existing = await this.getPublicProfileByUsername(normalized);
+    return !existing;
+  }
+
+  // Share Events
+  async createShareEvent(event: InsertShareEvent): Promise<ShareEvent> {
+    const result = await db.insert(shareEvents).values(event).returning();
+    return result[0];
+  }
+
+  async getShareEvents(userId: string, limit: number = 50): Promise<ShareEvent[]> {
+    return db
+      .select()
+      .from(shareEvents)
+      .where(eq(shareEvents.userId, userId))
+      .orderBy(desc(shareEvents.createdAt))
+      .limit(limit);
   }
 }
 

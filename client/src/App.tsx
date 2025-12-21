@@ -29,6 +29,7 @@ const Settings = lazy(() => import("@/pages/settings"));
 const Profile = lazy(() => import("@/pages/profile"));
 const Goals = lazy(() => import("@/pages/goals"));
 const Playground = lazy(() => import("@/pages/playground"));
+const PublicProfile = lazy(() => import("@/pages/public-profile"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Route loading fallback
@@ -202,6 +203,20 @@ function AuthenticatedApp() {
 
 function AppContent() {
   const { user, isLoading, isAuthenticated } = useAuth();
+
+  // Check if we're on a public profile route
+  const isPublicProfileRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/u/');
+
+  // Public profile pages don't require authentication
+  if (isPublicProfileRoute) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <Switch>
+          <Route path="/u/:username" component={PublicProfile} />
+        </Switch>
+      </Suspense>
+    );
+  }
 
   if (isLoading) {
     return <LoadingScreen />;
