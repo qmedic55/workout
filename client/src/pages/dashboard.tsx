@@ -36,6 +36,7 @@ function MetricCard({
   trend,
   trendValue,
   color = "primary",
+  showConsumedFormat = false,
 }: {
   title: string;
   value: number | string;
@@ -45,9 +46,11 @@ function MetricCard({
   trend?: "up" | "down" | "neutral";
   trendValue?: string;
   color?: "primary" | "chart-1" | "chart-2" | "chart-3" | "chart-4";
+  showConsumedFormat?: boolean;
 }) {
-  const progress = target ? (Number(value) / target) * 100 : 0;
-  
+  const numValue = typeof value === "string" ? parseFloat(value.replace(/,/g, "")) || 0 : value;
+  const progress = target ? (numValue / target) * 100 : 0;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
@@ -60,12 +63,24 @@ function MetricCard({
       </CardHeader>
       <CardContent>
         <div className="flex items-baseline gap-1">
-          <span className="text-3xl font-bold" data-testid={`text-${title.toLowerCase().replace(" ", "-")}`}>
-            {value}
-          </span>
-          {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
+          {showConsumedFormat && target ? (
+            <>
+              <span className="text-3xl font-bold" data-testid={`text-${title.toLowerCase().replace(" ", "-")}`}>
+                {typeof value === "number" ? value.toLocaleString() : value}
+              </span>
+              <span className="text-lg text-muted-foreground">/ {target.toLocaleString()}</span>
+              {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
+            </>
+          ) : (
+            <>
+              <span className="text-3xl font-bold" data-testid={`text-${title.toLowerCase().replace(" ", "-")}`}>
+                {value}
+              </span>
+              {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
+            </>
+          )}
         </div>
-        
+
         {target && (
           <div className="mt-3 space-y-1">
             <div className="flex justify-between text-xs text-muted-foreground">
@@ -75,7 +90,7 @@ function MetricCard({
             <Progress value={Math.min(progress, 100)} className="h-1.5" />
           </div>
         )}
-        
+
         {trend && trendValue && (
           <div className="flex items-center gap-1 mt-2">
             {trend === "up" && <TrendingUp className="h-3 w-3 text-chart-1" />}
@@ -348,13 +363,15 @@ export default function Dashboard() {
             target={profile?.targetCalories || 2000}
             icon={Flame}
             color="chart-4"
+            showConsumedFormat={true}
           />
           <MetricCard
             title="Steps"
-            value={todayLog?.steps?.toLocaleString() || "0"}
+            value={todayLog?.steps || 0}
             target={profile?.dailyStepsTarget || 8000}
             icon={Footprints}
             color="chart-2"
+            showConsumedFormat={true}
           />
           <MetricCard
             title="Sleep"

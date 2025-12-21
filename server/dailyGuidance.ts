@@ -105,6 +105,11 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
     ? logsWithSleep.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / logsWithSleep.length
     : null;
 
+  // Get current date info
+  const now = new Date();
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
   // Build context for AI
   const contextData = {
     user: {
@@ -118,8 +123,11 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
       coachingTone: profile.coachingTone || "empathetic",
     },
     today: {
+      date: format(now, "yyyy-MM-dd"),
+      dayOfWeek: dayNames[now.getDay()],
+      formattedDate: `${dayNames[now.getDay()]}, ${monthNames[now.getMonth()]} ${now.getDate()}`,
       currentHour,
-      isWeekend: [0, 6].includes(new Date().getDay()),
+      isWeekend: [0, 6].includes(now.getDay()),
       loggedCalories: todayNutrition.calories,
       loggedProtein: todayNutrition.protein,
       loggedCarbs: todayNutrition.carbs,
@@ -130,6 +138,13 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
       energyLevel: todayLog?.energyLevel || null,
       stressLevel: todayLog?.stressLevel || null,
       mealCount: todayFoodEntries.length,
+      // Include the actual food items logged today so AI knows what was eaten
+      foodItemsLogged: todayFoodEntries.map(e => ({
+        name: e.foodName,
+        mealType: e.mealType,
+        calories: e.calories,
+        protein: e.proteinGrams,
+      })),
     },
     yesterday: {
       loggedCalories: yesterdayNutrition.calories,
@@ -184,7 +199,9 @@ IMPORTANT RULES:
    - If they mentioned stress, be more supportive and suggest stress-reducing activities
    - Reference their notes specifically to show you're listening (e.g., "Since you mentioned your shoulder is hurting...")
 
-Current time context: It's ${currentHour}:00 (${currentHour < 12 ? "morning" : currentHour < 17 ? "afternoon" : "evening"})
+Current date and time: Today is ${dayNames[now.getDay()]}, ${monthNames[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()} at ${currentHour}:00 (${currentHour < 12 ? "morning" : currentHour < 17 ? "afternoon" : "evening"})
+
+9. If the user has already logged food today (see today.foodItemsLogged), acknowledge what they've eaten and reference it specifically in your guidance. For example, "I see you had eggs for breakfast - great protein start!"
 
 Return a valid JSON object with this exact structure:
 {
