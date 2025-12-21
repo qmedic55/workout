@@ -175,16 +175,37 @@ export class DatabaseStorage implements IStorage {
 
   async createOrUpdateDailyLog(log: InsertDailyLog): Promise<DailyLog> {
     const existing = await this.getDailyLog(log.userId, log.logDate);
-    
+
     if (existing) {
-      const result = await db
-        .update(dailyLogs)
-        .set(log)
-        .where(eq(dailyLogs.id, existing.id))
-        .returning();
-      return result[0];
+      // Only update fields that are explicitly provided (not undefined)
+      // This preserves existing values for fields not being updated
+      const updates: Record<string, any> = {};
+
+      // List all possible fields and only include non-undefined ones
+      const fields = [
+        'weightKg', 'caloriesConsumed', 'proteinGrams', 'carbsGrams', 'fatGrams',
+        'steps', 'sleepHours', 'sleepQuality', 'energyLevel', 'stressLevel',
+        'moodRating', 'workoutCompleted', 'workoutType', 'notes', 'waterLiters'
+      ] as const;
+
+      for (const field of fields) {
+        if (log[field as keyof InsertDailyLog] !== undefined) {
+          updates[field] = log[field as keyof InsertDailyLog];
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const result = await db
+          .update(dailyLogs)
+          .set(updates)
+          .where(eq(dailyLogs.id, existing.id))
+          .returning();
+        return result[0];
+      }
+
+      return existing;
     }
-    
+
     const result = await db.insert(dailyLogs).values(log).returning();
     return result[0];
   }
@@ -214,15 +235,79 @@ export class DatabaseStorage implements IStorage {
 
   async createFoodEntry(entry: InsertFoodEntry): Promise<FoodEntry> {
     const result = await db.insert(foodEntries).values(entry).returning();
+    // Sync nutrition totals to daily_logs
+    await this.syncDailyNutrition(entry.userId, entry.logDate);
     return result[0];
   }
 
   async deleteFoodEntry(id: string, userId: string): Promise<boolean> {
+    // Get the entry first to know which date to sync
+    const entries = await db
+      .select()
+      .from(foodEntries)
+      .where(and(eq(foodEntries.id, id), eq(foodEntries.userId, userId)));
+
+    if (entries.length === 0) return false;
+
+    const entry = entries[0];
     const result = await db
       .delete(foodEntries)
       .where(and(eq(foodEntries.id, id), eq(foodEntries.userId, userId)))
       .returning();
+
+    if (result.length > 0) {
+      // Sync nutrition totals to daily_logs after deletion
+      await this.syncDailyNutrition(userId, entry.logDate);
+    }
+
     return result.length > 0;
+  }
+
+  /**
+   * Recalculates nutrition totals from food_entries and updates daily_logs
+   * This ensures the dashboard displays accurate calorie/macro data
+   * Preserves other daily log fields like steps, sleep, weight, etc.
+   */
+  async syncDailyNutrition(userId: string, date: string): Promise<void> {
+    // Get all food entries for this date
+    const entries = await this.getFoodEntries(userId, date);
+
+    // Calculate totals
+    const totals = entries.reduce(
+      (acc, entry) => ({
+        calories: acc.calories + (entry.calories || 0),
+        protein: acc.protein + (entry.proteinGrams || 0),
+        carbs: acc.carbs + (entry.carbsGrams || 0),
+        fat: acc.fat + (entry.fatGrams || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+
+    // Get existing daily log to preserve other fields
+    const existing = await this.getDailyLog(userId, date);
+
+    if (existing) {
+      // Update only nutrition fields, preserve everything else
+      await db
+        .update(dailyLogs)
+        .set({
+          caloriesConsumed: totals.calories,
+          proteinGrams: totals.protein,
+          carbsGrams: totals.carbs,
+          fatGrams: totals.fat,
+        })
+        .where(eq(dailyLogs.id, existing.id));
+    } else {
+      // Create new daily log with just nutrition data
+      await db.insert(dailyLogs).values({
+        userId,
+        logDate: date,
+        caloriesConsumed: totals.calories,
+        proteinGrams: totals.protein,
+        carbsGrams: totals.carbs,
+        fatGrams: totals.fat,
+      });
+    }
   }
 
   // Exercise Logs
