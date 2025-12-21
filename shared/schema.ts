@@ -296,6 +296,41 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Body measurements - comprehensive body part tracking
+export const bodyMeasurements = pgTable("body_measurements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  measurementDate: date("measurement_date").notNull(),
+
+  // Core measurements (cm)
+  chestCm: real("chest_cm"),
+  waistCm: real("waist_cm"),
+  hipsCm: real("hips_cm"),
+
+  // Arms (cm)
+  leftBicepCm: real("left_bicep_cm"),
+  rightBicepCm: real("right_bicep_cm"),
+  leftForearmCm: real("left_forearm_cm"),
+  rightForearmCm: real("right_forearm_cm"),
+
+  // Legs (cm)
+  leftThighCm: real("left_thigh_cm"),
+  rightThighCm: real("right_thigh_cm"),
+  leftCalfCm: real("left_calf_cm"),
+  rightCalfCm: real("right_calf_cm"),
+
+  // Other (cm)
+  neckCm: real("neck_cm"),
+  shouldersCm: real("shoulders_cm"), // shoulder width
+
+  // Body composition estimates (optional)
+  bodyFatPercentage: real("body_fat_percentage"),
+
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Health notes - user-submitted context notes for AI coaching
 export const healthNotes = pgTable("health_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -364,11 +399,19 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   notifications: many(notifications),
   profileChanges: many(profileChanges),
   healthNotes: many(healthNotes),
+  bodyMeasurements: many(bodyMeasurements),
 }));
 
 export const healthNotesRelations = relations(healthNotes, ({ one }) => ({
   user: one(users, {
     fields: [healthNotes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const bodyMeasurementsRelations = relations(bodyMeasurements, ({ one }) => ({
+  user: one(users, {
+    fields: [bodyMeasurements.userId],
     references: [users.id],
   }),
 }));
@@ -505,6 +548,11 @@ export const insertHealthNoteSchema = createInsertSchema(healthNotes).omit({
   createdAt: true,
 });
 
+export const insertBodyMeasurementSchema = createInsertSchema(bodyMeasurements).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -540,3 +588,6 @@ export type ProfileChange = typeof profileChanges.$inferSelect;
 
 export type InsertHealthNote = z.infer<typeof insertHealthNoteSchema>;
 export type HealthNote = typeof healthNotes.$inferSelect;
+
+export type InsertBodyMeasurement = z.infer<typeof insertBodyMeasurementSchema>;
+export type BodyMeasurement = typeof bodyMeasurements.$inferSelect;

@@ -1723,6 +1723,217 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // ==================== Body Measurements Routes ====================
+
+  // Get all body measurements for user (most recent first)
+  app.get("/api/body-measurements", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { limit, startDate, endDate } = req.query;
+
+      let measurements;
+      if (startDate && endDate) {
+        measurements = await storage.getBodyMeasurementsRange(
+          userId,
+          startDate as string,
+          endDate as string
+        );
+      } else {
+        measurements = await storage.getBodyMeasurements(
+          userId,
+          limit ? parseInt(limit as string) : 50
+        );
+      }
+
+      res.json(measurements);
+    } catch (error) {
+      console.error("Error fetching body measurements:", error);
+      res.status(500).json({ error: "Failed to fetch body measurements" });
+    }
+  });
+
+  // Get body measurement for specific date
+  app.get("/api/body-measurements/:date", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { date } = req.params;
+      const measurement = await storage.getBodyMeasurement(userId, date);
+
+      if (!measurement) {
+        res.status(404).json({ error: "No measurement found for this date" });
+        return;
+      }
+
+      res.json(measurement);
+    } catch (error) {
+      console.error("Error fetching body measurement:", error);
+      res.status(500).json({ error: "Failed to fetch body measurement" });
+    }
+  });
+
+  // Create or update body measurement
+  app.post("/api/body-measurements", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const {
+        measurementDate,
+        chestCm,
+        waistCm,
+        hipsCm,
+        leftBicepCm,
+        rightBicepCm,
+        leftForearmCm,
+        rightForearmCm,
+        leftThighCm,
+        rightThighCm,
+        leftCalfCm,
+        rightCalfCm,
+        neckCm,
+        shouldersCm,
+        bodyFatPercentage,
+        notes,
+      } = req.body;
+
+      const date = measurementDate || format(new Date(), "yyyy-MM-dd");
+
+      const measurement = await storage.createOrUpdateBodyMeasurement({
+        userId,
+        measurementDate: date,
+        chestCm,
+        waistCm,
+        hipsCm,
+        leftBicepCm,
+        rightBicepCm,
+        leftForearmCm,
+        rightForearmCm,
+        leftThighCm,
+        rightThighCm,
+        leftCalfCm,
+        rightCalfCm,
+        neckCm,
+        shouldersCm,
+        bodyFatPercentage,
+        notes,
+      });
+
+      res.json(measurement);
+    } catch (error) {
+      console.error("Error saving body measurement:", error);
+      res.status(500).json({ error: "Failed to save body measurement" });
+    }
+  });
+
+  // Delete body measurement
+  app.delete("/api/body-measurements/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const deleted = await storage.deleteBodyMeasurement(id, userId);
+
+      if (!deleted) {
+        res.status(404).json({ error: "Measurement not found" });
+        return;
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting body measurement:", error);
+      res.status(500).json({ error: "Failed to delete body measurement" });
+    }
+  });
+
+  // Get measurement trends/progress with AI analysis
+  app.get("/api/body-measurements/analysis", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      // Get last 12 weeks of measurements
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 84), "yyyy-MM-dd");
+      const measurements = await storage.getBodyMeasurementsRange(userId, startDate, endDate);
+
+      if (measurements.length < 2) {
+        res.json({
+          hasEnoughData: false,
+          message: "Need at least 2 measurements to show progress. Keep tracking!",
+          measurements,
+        });
+        return;
+      }
+
+      // Calculate changes between first and last measurement
+      const latest = measurements[0];
+      const oldest = measurements[measurements.length - 1];
+
+      const calculateChange = (current: number | null, previous: number | null) => {
+        if (current === null || previous === null) return null;
+        return {
+          change: +(current - previous).toFixed(1),
+          percentChange: +((current - previous) / previous * 100).toFixed(1),
+        };
+      };
+
+      const progress = {
+        chest: calculateChange(latest.chestCm, oldest.chestCm),
+        waist: calculateChange(latest.waistCm, oldest.waistCm),
+        hips: calculateChange(latest.hipsCm, oldest.hipsCm),
+        leftBicep: calculateChange(latest.leftBicepCm, oldest.leftBicepCm),
+        rightBicep: calculateChange(latest.rightBicepCm, oldest.rightBicepCm),
+        leftForearm: calculateChange(latest.leftForearmCm, oldest.leftForearmCm),
+        rightForearm: calculateChange(latest.rightForearmCm, oldest.rightForearmCm),
+        leftThigh: calculateChange(latest.leftThighCm, oldest.leftThighCm),
+        rightThigh: calculateChange(latest.rightThighCm, oldest.rightThighCm),
+        leftCalf: calculateChange(latest.leftCalfCm, oldest.leftCalfCm),
+        rightCalf: calculateChange(latest.rightCalfCm, oldest.rightCalfCm),
+        neck: calculateChange(latest.neckCm, oldest.neckCm),
+        shoulders: calculateChange(latest.shouldersCm, oldest.shouldersCm),
+        bodyFat: calculateChange(latest.bodyFatPercentage, oldest.bodyFatPercentage),
+      };
+
+      // Determine if user is gaining muscle, losing fat, or both
+      const phase = profile.currentPhase || "recomp";
+      let interpretation = "";
+
+      const waistChange = progress.waist?.change || 0;
+      const bicepChange = ((progress.leftBicep?.change || 0) + (progress.rightBicep?.change || 0)) / 2;
+      const shoulderChange = progress.shoulders?.change || 0;
+
+      if (phase === "cutting" || phase === "recomp") {
+        if (waistChange < -1 && bicepChange >= 0) {
+          interpretation = "Excellent progress! You're losing inches around your waist while maintaining or growing muscle. This is the ideal body recomposition pattern.";
+        } else if (waistChange < 0) {
+          interpretation = "You're losing inches around your waist - fat loss is happening. Keep up the deficit and protein intake.";
+        } else if (bicepChange > 0.5 && shoulderChange > 0.5) {
+          interpretation = "Muscle growth detected in your upper body! Make sure you're in a slight surplus to maximize gains.";
+        }
+      } else if (phase === "recovery") {
+        if (bicepChange > 0 || shoulderChange > 0) {
+          interpretation = "Muscle measurements are improving during recovery - your metabolism is responding well!";
+        }
+      }
+
+      res.json({
+        hasEnoughData: true,
+        measurementCount: measurements.length,
+        periodDays: Math.ceil((new Date(latest.measurementDate).getTime() - new Date(oldest.measurementDate).getTime()) / (1000 * 60 * 60 * 24)),
+        latestMeasurement: latest,
+        oldestMeasurement: oldest,
+        progress,
+        interpretation,
+        measurements,
+      });
+    } catch (error) {
+      console.error("Error analyzing body measurements:", error);
+      res.status(500).json({ error: "Failed to analyze body measurements" });
+    }
+  });
+
   // ==================== Data Export Routes ====================
 
   app.get("/api/export/json", isAuthenticated, async (req: Request, res: Response) => {

@@ -106,31 +106,55 @@ function MetricCard({
   );
 }
 
+interface PhaseEvaluation {
+  currentPhase: string;
+  weeksInPhase: number;
+  readyForTransition: boolean;
+  suggestedPhase: string | null;
+  reason: string;
+  biofeedbackScore: number;
+}
+
 function PhaseCard({ phase, startDate }: { phase: string; startDate?: string }) {
-  const phaseInfo: Record<string, { label: string; description: string; color: string }> = {
+  const { data: phaseEval } = useQuery<PhaseEvaluation>({
+    queryKey: ["/api/phase-evaluation"],
+    staleTime: 60000, // Cache for 1 minute
+  });
+
+  const phaseInfo: Record<string, { label: string; description: string; color: string; nextPhase?: string }> = {
     assessment: {
       label: "Assessment",
       description: "Getting to know you and your goals",
       color: "bg-chart-2",
+      nextPhase: "recovery",
     },
     recovery: {
       label: "Recovery Phase",
       description: "Metabolic reset and reverse dieting",
       color: "bg-chart-4",
+      nextPhase: "recomp",
     },
     recomp: {
       label: "Recomposition",
       description: "Building muscle while losing fat",
       color: "bg-chart-1",
+      nextPhase: "cutting",
     },
     cutting: {
       label: "Fat Loss Phase",
       description: "Sustainable caloric deficit",
       color: "bg-chart-3",
+      nextPhase: "recovery",
     },
   };
 
   const info = phaseInfo[phase] || phaseInfo.assessment;
+  const nextPhaseInfo = info.nextPhase ? phaseInfo[info.nextPhase] : null;
+
+  // Calculate weeks in phase
+  const weeksInPhase = phaseEval?.weeksInPhase ?? (startDate
+    ? Math.floor((Date.now() - new Date(startDate).getTime()) / (7 * 24 * 60 * 60 * 1000))
+    : 0);
 
   return (
     <Card>
@@ -139,10 +163,10 @@ function PhaseCard({ phase, startDate }: { phase: string; startDate?: string }) 
           Current Phase
         </CardTitle>
         <Badge variant="secondary" className="text-xs">
-          {startDate ? `Since ${new Date(startDate).toLocaleDateString()}` : "Getting Started"}
+          {weeksInPhase > 0 ? `Week ${weeksInPhase}` : "Getting Started"}
         </Badge>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         <div className="flex items-center gap-3">
           <div className={`w-3 h-3 rounded-full ${info.color}`} />
           <div>
@@ -150,6 +174,25 @@ function PhaseCard({ phase, startDate }: { phase: string; startDate?: string }) 
             <p className="text-sm text-muted-foreground">{info.description}</p>
           </div>
         </div>
+
+        {/* Next phase projection */}
+        {nextPhaseInfo && phase !== "assessment" && (
+          <div className="pt-2 border-t">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <ArrowRight className="h-3 w-3" />
+              <span>Next: <span className="font-medium">{nextPhaseInfo.label}</span></span>
+            </div>
+            {phaseEval?.readyForTransition ? (
+              <p className="text-xs text-green-600 mt-1">
+                Ready for transition! Sync to apply.
+              </p>
+            ) : phaseEval?.reason ? (
+              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                {phaseEval.reason}
+              </p>
+            ) : null}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -261,6 +304,8 @@ export default function Dashboard() {
 
   const { data: todayLog, isLoading: logLoading } = useQuery<DailyLog>({
     queryKey: ["/api/daily-logs/today"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: "always",
   });
 
   // AI Sync mutation - analyzes all data and applies updates

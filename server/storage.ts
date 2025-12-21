@@ -14,6 +14,7 @@ import {
   notifications,
   profileChanges,
   healthNotes,
+  bodyMeasurements,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -37,6 +38,8 @@ import {
   type InsertProfileChange,
   type HealthNote,
   type InsertHealthNote,
+  type BodyMeasurement,
+  type InsertBodyMeasurement,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -110,6 +113,13 @@ export interface IStorage {
   createHealthNote(note: InsertHealthNote): Promise<HealthNote>;
   updateHealthNote(id: string, userId: string, updates: Partial<InsertHealthNote>): Promise<HealthNote | undefined>;
   deleteHealthNote(id: string, userId: string): Promise<boolean>;
+
+  // Body Measurements
+  getBodyMeasurement(userId: string, date: string): Promise<BodyMeasurement | undefined>;
+  getBodyMeasurements(userId: string, limit?: number): Promise<BodyMeasurement[]>;
+  getBodyMeasurementsRange(userId: string, startDate: string, endDate: string): Promise<BodyMeasurement[]>;
+  createOrUpdateBodyMeasurement(measurement: InsertBodyMeasurement): Promise<BodyMeasurement>;
+  deleteBodyMeasurement(id: string, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -606,6 +616,81 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(healthNotes)
       .where(and(eq(healthNotes.id, id), eq(healthNotes.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Body Measurements
+  async getBodyMeasurement(userId: string, date: string): Promise<BodyMeasurement | undefined> {
+    const result = await db
+      .select()
+      .from(bodyMeasurements)
+      .where(and(eq(bodyMeasurements.userId, userId), eq(bodyMeasurements.measurementDate, date)));
+    return result[0];
+  }
+
+  async getBodyMeasurements(userId: string, limit: number = 50): Promise<BodyMeasurement[]> {
+    return db
+      .select()
+      .from(bodyMeasurements)
+      .where(eq(bodyMeasurements.userId, userId))
+      .orderBy(desc(bodyMeasurements.measurementDate))
+      .limit(limit);
+  }
+
+  async getBodyMeasurementsRange(userId: string, startDate: string, endDate: string): Promise<BodyMeasurement[]> {
+    return db
+      .select()
+      .from(bodyMeasurements)
+      .where(
+        and(
+          eq(bodyMeasurements.userId, userId),
+          gte(bodyMeasurements.measurementDate, startDate),
+          lte(bodyMeasurements.measurementDate, endDate)
+        )
+      )
+      .orderBy(desc(bodyMeasurements.measurementDate));
+  }
+
+  async createOrUpdateBodyMeasurement(measurement: InsertBodyMeasurement): Promise<BodyMeasurement> {
+    const existing = await this.getBodyMeasurement(measurement.userId, measurement.measurementDate);
+
+    if (existing) {
+      // Update only provided fields
+      const updates: Record<string, any> = {};
+      const fields = [
+        'chestCm', 'waistCm', 'hipsCm',
+        'leftBicepCm', 'rightBicepCm', 'leftForearmCm', 'rightForearmCm',
+        'leftThighCm', 'rightThighCm', 'leftCalfCm', 'rightCalfCm',
+        'neckCm', 'shouldersCm', 'bodyFatPercentage', 'notes'
+      ] as const;
+
+      for (const field of fields) {
+        if (measurement[field as keyof InsertBodyMeasurement] !== undefined) {
+          updates[field] = measurement[field as keyof InsertBodyMeasurement];
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const result = await db
+          .update(bodyMeasurements)
+          .set(updates)
+          .where(eq(bodyMeasurements.id, existing.id))
+          .returning();
+        return result[0];
+      }
+
+      return existing;
+    }
+
+    const result = await db.insert(bodyMeasurements).values(measurement).returning();
+    return result[0];
+  }
+
+  async deleteBodyMeasurement(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(bodyMeasurements)
+      .where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId)))
       .returning();
     return result.length > 0;
   }
