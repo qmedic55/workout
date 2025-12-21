@@ -8,17 +8,53 @@ import { searchUSDAFoods } from "./foodApi";
 import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from "./aiRecommendations";
 import { parseAIResponseForActions, prepareProfileUpdates, formatChangeNotification } from "./aiActionParser";
 import { sendProactiveNotifications, getDailyProgressSummary, generateAfternoonReminders } from "./proactiveNotifications";
+import { generateDailyGuidance } from "./dailyGuidance";
 import { format, subDays, parseISO } from "date-fns";
 import {
   insertUserProfileSchema,
   insertDailyLogSchema,
   insertFoodEntrySchema,
   insertChatMessageSchema,
+  insertExerciseLogSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { authStorage } from "./replit_integrations/auth/storage";
 import * as jose from "jose";
+
+// Simple in-memory rate limiter for AI endpoints
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+const RATE_LIMIT_MAX_REQUESTS = 10; // Max 10 AI requests per minute per user
+
+function checkRateLimit(userId: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const userLimit = rateLimitStore.get(userId);
+
+  if (!userLimit || now > userLimit.resetTime) {
+    // Reset or create new entry
+    rateLimitStore.set(userId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true };
+  }
+
+  if (userLimit.count >= RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfter = Math.ceil((userLimit.resetTime - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  userLimit.count++;
+  return { allowed: true };
+}
+
+// Clean up old rate limit entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  rateLimitStore.forEach((value, key) => {
+    if (now > value.resetTime) {
+      rateLimitStore.delete(key);
+    }
+  });
+}, 5 * 60 * 1000);
 
 // Helper to get user ID from authenticated request
 function getUserId(req: Request): string {
@@ -518,8 +554,15 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   // Create a new exercise log
   app.post("/api/exercise-logs", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      // Validate input
+      const parseResult = insertExerciseLogSchema.omit({ userId: true }).safeParse(req.body);
+      if (!parseResult.success) {
+        res.status(400).json({ error: "Invalid exercise log data", details: parseResult.error.flatten() });
+        return;
+      }
+
       const log = await storage.createExerciseLog({
-        ...req.body,
+        ...parseResult.data,
         userId: getUserId(req),
       });
       res.json(log);
@@ -614,6 +657,19 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
   app.post("/api/chat/send", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const userId = getUserId(req);
+
+      // Rate limit check for AI endpoints
+      const rateCheck = checkRateLimit(userId);
+      if (!rateCheck.allowed) {
+        res.status(429).json({
+          error: "Too many requests",
+          message: "Please wait before sending more messages",
+          retryAfter: rateCheck.retryAfter,
+        });
+        return;
+      }
+
       // Validate input
       const parseResult = chatMessageSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -624,14 +680,13 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // Save user message
       await storage.createChatMessage({
-        userId: getUserId(req),
+        userId,
         role: "user",
         content,
         contextType: "question",
       });
 
       // Get context for AI - fetch ALL user data for comprehensive awareness
-      const userId = getUserId(req);
       const profile = await storage.getProfile(userId);
       const assessment = await storage.getOnboardingAssessment(userId);
 
@@ -640,22 +695,12 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       const startDate = format(subDays(new Date(), 14), "yyyy-MM-dd");
       const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
 
-      // Get food entries for last 7 days
+      // Get food entries for last 7 days (single query)
       const foodStartDate = format(subDays(new Date(), 7), "yyyy-MM-dd");
-      const allFoodEntries: any[] = [];
-      for (let i = 0; i < 7; i++) {
-        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
-        const dayEntries = await storage.getFoodEntries(userId, dateStr);
-        allFoodEntries.push(...dayEntries);
-      }
+      const allFoodEntries = await storage.getFoodEntriesRange(userId, foodStartDate, endDate);
 
-      // Get exercise logs for last 14 days
-      const allExerciseLogs: any[] = [];
-      for (let i = 0; i < 14; i++) {
-        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
-        const dayLogs = await storage.getExerciseLogs(userId, dateStr);
-        allExerciseLogs.push(...dayLogs);
-      }
+      // Get exercise logs for last 14 days (single query)
+      const allExerciseLogs = await storage.getExerciseLogsRange(userId, startDate, endDate);
 
       const messageHistory = await storage.getChatMessages(userId, 20);
 
@@ -929,12 +974,94 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // ==================== Daily Guidance Route ====================
+
+  // Get AI-generated daily guidance - what the user should do today
+  app.get("/api/daily-guidance", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+
+      // Rate limit check for AI endpoints
+      const rateCheck = checkRateLimit(userId);
+      if (!rateCheck.allowed) {
+        res.status(429).json({
+          error: "Too many requests",
+          message: "Please wait before refreshing guidance",
+          retryAfter: rateCheck.retryAfter,
+        });
+        return;
+      }
+
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      if (!profile.onboardingCompleted) {
+        res.status(400).json({ error: "Please complete onboarding first" });
+        return;
+      }
+
+      // Gather all context data for the AI
+      const assessment = await storage.getOnboardingAssessment(userId);
+      const today = format(new Date(), "yyyy-MM-dd");
+      const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
+      const weekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
+
+      // Get today's log
+      const todayLog = await storage.getDailyLog(userId, today);
+      const yesterdayLog = await storage.getDailyLog(userId, yesterday);
+
+      // Get recent logs for trend analysis
+      const recentLogs = await storage.getDailyLogs(userId, weekAgo, today);
+
+      // Get food entries for today and yesterday
+      const todayFoodEntries = await storage.getFoodEntries(userId, today);
+      const yesterdayFoodEntries = await storage.getFoodEntries(userId, yesterday);
+
+      // Get exercise logs for the last 7 days
+      const recentExerciseLogs = await storage.getExerciseLogsRange(userId, weekAgo, today);
+
+      // Generate AI guidance
+      const guidance = await generateDailyGuidance({
+        profile,
+        assessment,
+        todayLog,
+        yesterdayLog,
+        recentLogs,
+        todayFoodEntries,
+        yesterdayFoodEntries,
+        recentExerciseLogs,
+        currentHour: new Date().getHours(),
+      });
+
+      res.json(guidance);
+    } catch (error) {
+      console.error("Error generating daily guidance:", error);
+      res.status(500).json({ error: "Failed to generate daily guidance" });
+    }
+  });
+
   // ==================== AI Recommendations Routes ====================
 
   // Get comprehensive AI-powered recommendations based on profile and recent data
   app.get("/api/ai-recommendations", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
+
+      // Rate limit check for AI endpoints
+      const rateCheck = checkRateLimit(userId);
+      if (!rateCheck.allowed) {
+        res.status(429).json({
+          error: "Too many requests",
+          message: "Please wait before requesting recommendations",
+          retryAfter: rateCheck.retryAfter,
+        });
+        return;
+      }
+
       const profile = await storage.getProfile(userId);
 
       if (!profile) {
@@ -973,6 +1100,18 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.get("/api/ai-recommendations/workout", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
+
+      // Rate limit check for AI endpoints
+      const rateCheck = checkRateLimit(userId);
+      if (!rateCheck.allowed) {
+        res.status(429).json({
+          error: "Too many requests",
+          message: "Please wait before requesting workout recommendations",
+          retryAfter: rateCheck.retryAfter,
+        });
+        return;
+      }
+
       const profile = await storage.getProfile(userId);
 
       if (!profile) {
@@ -1180,7 +1319,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.get("/api/profile-changes/chat/:chatMessageId", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { chatMessageId } = req.params;
-      const changes = await storage.getProfileChangesByChatMessage(chatMessageId);
+      const userId = getUserId(req);
+      const changes = await storage.getProfileChangesByChatMessage(chatMessageId, userId);
       res.json(changes);
     } catch (error) {
       console.error("Error fetching chat-linked changes:", error);
@@ -1194,6 +1334,18 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.post("/api/sync", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
+
+      // Rate limit check for AI endpoints
+      const rateCheck = checkRateLimit(userId);
+      if (!rateCheck.allowed) {
+        res.status(429).json({
+          error: "Too many requests",
+          message: "Please wait before syncing again",
+          retryAfter: rateCheck.retryAfter,
+        });
+        return;
+      }
+
       const profile = await storage.getProfile(userId);
 
       if (!profile) {
@@ -1207,21 +1359,12 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       const startDate = format(subDays(new Date(), 14), "yyyy-MM-dd");
       const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
 
-      // Get food entries for last 7 days
-      const allFoodEntries: any[] = [];
-      for (let i = 0; i < 7; i++) {
-        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
-        const dayEntries = await storage.getFoodEntries(userId, dateStr);
-        allFoodEntries.push(...dayEntries);
-      }
+      // Get food entries for last 7 days (single query)
+      const foodStartDate = format(subDays(new Date(), 7), "yyyy-MM-dd");
+      const allFoodEntries = await storage.getFoodEntriesRange(userId, foodStartDate, endDate);
 
-      // Get exercise logs for last 14 days
-      const allExerciseLogs: any[] = [];
-      for (let i = 0; i < 14; i++) {
-        const dateStr = format(subDays(new Date(), i), "yyyy-MM-dd");
-        const dayLogs = await storage.getExerciseLogs(userId, dateStr);
-        allExerciseLogs.push(...dayLogs);
-      }
+      // Get exercise logs for last 14 days (single query)
+      const allExerciseLogs = await storage.getExerciseLogsRange(userId, startDate, endDate);
 
       // Get daily progress summary
       const dailyProgressSummary = await getDailyProgressSummary(userId);

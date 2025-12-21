@@ -53,11 +53,13 @@ export interface IStorage {
 
   // Food Entries
   getFoodEntries(userId: string, date: string): Promise<FoodEntry[]>;
+  getFoodEntriesRange(userId: string, startDate: string, endDate: string): Promise<FoodEntry[]>;
   createFoodEntry(entry: InsertFoodEntry): Promise<FoodEntry>;
   deleteFoodEntry(id: string, userId: string): Promise<boolean>;
 
   // Exercise Logs
   getExerciseLogs(userId: string, date: string): Promise<ExerciseLog[]>;
+  getExerciseLogsRange(userId: string, startDate: string, endDate: string): Promise<ExerciseLog[]>;
   getExerciseLogsByWorkout(userId: string, date: string, workoutTemplateId: string): Promise<ExerciseLog[]>;
   createExerciseLog(log: InsertExerciseLog): Promise<ExerciseLog>;
   updateExerciseLog(id: string, userId: string, updates: Partial<InsertExerciseLog>): Promise<ExerciseLog | undefined>;
@@ -95,7 +97,7 @@ export interface IStorage {
   // Profile Changes History
   getProfileChanges(userId: string, limit?: number): Promise<ProfileChange[]>;
   getProfileChangesByCategory(userId: string, category: string): Promise<ProfileChange[]>;
-  getProfileChangesByChatMessage(chatMessageId: string): Promise<ProfileChange[]>;
+  getProfileChangesByChatMessage(chatMessageId: string, userId: string): Promise<ProfileChange[]>;
   createProfileChange(change: InsertProfileChange): Promise<ProfileChange>;
   getRecentChangeSummary(userId: string, days?: number): Promise<ProfileChange[]>;
 }
@@ -186,6 +188,20 @@ export class DatabaseStorage implements IStorage {
       .orderBy(foodEntries.createdAt);
   }
 
+  async getFoodEntriesRange(userId: string, startDate: string, endDate: string): Promise<FoodEntry[]> {
+    return db
+      .select()
+      .from(foodEntries)
+      .where(
+        and(
+          eq(foodEntries.userId, userId),
+          gte(foodEntries.logDate, startDate),
+          lte(foodEntries.logDate, endDate)
+        )
+      )
+      .orderBy(desc(foodEntries.logDate), foodEntries.createdAt);
+  }
+
   async createFoodEntry(entry: InsertFoodEntry): Promise<FoodEntry> {
     const result = await db.insert(foodEntries).values(entry).returning();
     return result[0];
@@ -206,6 +222,20 @@ export class DatabaseStorage implements IStorage {
       .from(exerciseLogs)
       .where(and(eq(exerciseLogs.userId, userId), eq(exerciseLogs.logDate, date)))
       .orderBy(exerciseLogs.exerciseOrder);
+  }
+
+  async getExerciseLogsRange(userId: string, startDate: string, endDate: string): Promise<ExerciseLog[]> {
+    return db
+      .select()
+      .from(exerciseLogs)
+      .where(
+        and(
+          eq(exerciseLogs.userId, userId),
+          gte(exerciseLogs.logDate, startDate),
+          lte(exerciseLogs.logDate, endDate)
+        )
+      )
+      .orderBy(desc(exerciseLogs.logDate), exerciseLogs.exerciseOrder);
   }
 
   async getExerciseLogsByWorkout(userId: string, date: string, workoutTemplateId: string): Promise<ExerciseLog[]> {
@@ -387,11 +417,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(profileChanges.createdAt));
   }
 
-  async getProfileChangesByChatMessage(chatMessageId: string): Promise<ProfileChange[]> {
+  async getProfileChangesByChatMessage(chatMessageId: string, userId: string): Promise<ProfileChange[]> {
     return db
       .select()
       .from(profileChanges)
-      .where(eq(profileChanges.chatMessageId, chatMessageId))
+      .where(and(eq(profileChanges.chatMessageId, chatMessageId), eq(profileChanges.userId, userId)))
       .orderBy(desc(profileChanges.createdAt));
   }
 

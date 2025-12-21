@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HealthInsights } from "@/components/health-insights";
+import { DailyGuidance } from "@/components/daily-guidance";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -318,50 +319,60 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      <WelcomeCard profile={profile} />
+      {/* Show WelcomeCard for new users, DailyGuidance for onboarded users */}
+      {!profile?.onboardingCompleted ? (
+        <WelcomeCard profile={profile} />
+      ) : (
+        <DailyGuidance />
+      )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Weight"
-          value={todayLog?.weightKg?.toFixed(1) || profile?.currentWeightKg?.toFixed(1) || "--"}
-          unit="kg"
-          icon={Scale}
-          trend={todayLog?.weightKg ? "down" : undefined}
-          trendValue={todayLog?.weightKg ? "-0.3 this week" : undefined}
-        />
-        <MetricCard
-          title="Calories"
-          value={todayLog?.caloriesConsumed || 0}
-          unit="kcal"
-          target={profile?.targetCalories || 2000}
-          icon={Flame}
-          color="chart-4"
-        />
-        <MetricCard
-          title="Steps"
-          value={todayLog?.steps?.toLocaleString() || "0"}
-          target={profile?.dailyStepsTarget || 8000}
-          icon={Footprints}
-          color="chart-2"
-        />
-        <MetricCard
-          title="Sleep"
-          value={todayLog?.sleepHours?.toFixed(1) || "--"}
-          unit="hrs"
-          icon={Moon}
-          trend={todayLog?.sleepHours && todayLog.sleepHours >= 7 ? "up" : todayLog?.sleepHours ? "down" : undefined}
-          trendValue={todayLog?.sleepQuality ? `Quality: ${todayLog.sleepQuality}/10` : undefined}
-          color="chart-3"
-        />
-      </div>
+      {/* Quick metrics - only show for onboarded users */}
+      {profile?.onboardingCompleted && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            title="Weight"
+            value={todayLog?.weightKg?.toFixed(1) || profile?.currentWeightKg?.toFixed(1) || "--"}
+            unit="kg"
+            icon={Scale}
+            trend={todayLog?.weightKg ? "down" : undefined}
+            trendValue={todayLog?.weightKg ? "-0.3 this week" : undefined}
+          />
+          <MetricCard
+            title="Calories"
+            value={todayLog?.caloriesConsumed || 0}
+            unit="kcal"
+            target={profile?.targetCalories || 2000}
+            icon={Flame}
+            color="chart-4"
+          />
+          <MetricCard
+            title="Steps"
+            value={todayLog?.steps?.toLocaleString() || "0"}
+            target={profile?.dailyStepsTarget || 8000}
+            icon={Footprints}
+            color="chart-2"
+          />
+          <MetricCard
+            title="Sleep"
+            value={todayLog?.sleepHours?.toFixed(1) || "--"}
+            unit="hrs"
+            icon={Moon}
+            trend={todayLog?.sleepHours && todayLog.sleepHours >= 7 ? "up" : todayLog?.sleepHours ? "down" : undefined}
+            trendValue={todayLog?.sleepQuality ? `Quality: ${todayLog.sleepQuality}/10` : undefined}
+            color="chart-3"
+          />
+        </div>
+      )}
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <PhaseCard
-          phase={profile?.currentPhase || "assessment"}
-          startDate={profile?.phaseStartDate || undefined}
-        />
-        <QuickActionCard />
-      </div>
+      {profile?.onboardingCompleted && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <PhaseCard
+            phase={profile?.currentPhase || "assessment"}
+            startDate={profile?.phaseStartDate || undefined}
+          />
+          <QuickActionCard />
+        </div>
+      )}
 
       {profile?.onboardingCompleted && (
         <HealthInsights limit={3} />
