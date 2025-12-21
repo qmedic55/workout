@@ -1435,11 +1435,49 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         }
       }
 
+      // Also evaluate phase transition as part of sync
+      let phaseEvaluation = null;
+      let phaseTransitioned = false;
+      try {
+        phaseEvaluation = await evaluatePhaseTransition(userId);
+
+        // If ready for transition and we have a suggested phase, auto-transition
+        if (phaseEvaluation.readyForTransition && phaseEvaluation.suggestedPhase) {
+          const updatedProfile = await executePhaseTransition(userId, phaseEvaluation.suggestedPhase);
+          phaseTransitioned = true;
+          appliedChanges.push(`Phase changed to ${phaseEvaluation.suggestedPhase}`);
+
+          // Create notification about phase transition
+          const phaseNames: Record<string, string> = {
+            recovery: "Metabolic Recovery",
+            recomp: "Body Recomposition",
+            cutting: "Fat Loss",
+          };
+          await storage.createNotification({
+            userId,
+            type: "celebration",
+            title: `Welcome to ${phaseNames[phaseEvaluation.suggestedPhase] || phaseEvaluation.suggestedPhase}!`,
+            message: phaseEvaluation.reason,
+            actionUrl: "/",
+          });
+        }
+      } catch (phaseError) {
+        console.error("Error evaluating phase transition:", phaseError);
+      }
+
       res.json({
         success: true,
         message: aiResponse,
         appliedChanges: appliedChanges.length > 0 ? appliedChanges : undefined,
         summary: parsedActions.messageSummary,
+        phaseEvaluation: phaseEvaluation ? {
+          currentPhase: phaseEvaluation.currentPhase,
+          weeksInPhase: phaseEvaluation.weeksInPhase,
+          readyForTransition: phaseEvaluation.readyForTransition,
+          suggestedPhase: phaseEvaluation.suggestedPhase,
+          reason: phaseEvaluation.reason,
+          transitioned: phaseTransitioned,
+        } : undefined,
       });
     } catch (error) {
       console.error("Error during AI sync:", error);
@@ -1775,6 +1813,523 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error exporting CSV:", error);
       res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
+  // ==================== Weekly Progress Report ====================
+
+  app.get("/api/weekly-report", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      // Get last 7 days of data
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 7), "yyyy-MM-dd");
+      const prevWeekStart = format(subDays(new Date(), 14), "yyyy-MM-dd");
+
+      const thisWeekLogs = await storage.getDailyLogs(userId, startDate, endDate);
+      const prevWeekLogs = await storage.getDailyLogs(userId, prevWeekStart, startDate);
+      const thisWeekFood = await storage.getFoodEntriesRange(userId, startDate, endDate);
+      const thisWeekExercise = await storage.getExerciseLogsRange(userId, startDate, endDate);
+      const assessment = await storage.getOnboardingAssessment(userId);
+
+      // Calculate weekly stats
+      const avgCalories = thisWeekLogs.length > 0
+        ? Math.round(thisWeekLogs.reduce((sum, l) => sum + (l.caloriesConsumed || 0), 0) / thisWeekLogs.length)
+        : 0;
+      const avgProtein = thisWeekLogs.length > 0
+        ? Math.round(thisWeekLogs.reduce((sum, l) => sum + (l.proteinGrams || 0), 0) / thisWeekLogs.length)
+        : 0;
+      const avgSteps = thisWeekLogs.length > 0
+        ? Math.round(thisWeekLogs.reduce((sum, l) => sum + (l.steps || 0), 0) / thisWeekLogs.length)
+        : 0;
+      const avgSleep = thisWeekLogs.filter(l => l.sleepHours).length > 0
+        ? (thisWeekLogs.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / thisWeekLogs.filter(l => l.sleepHours).length).toFixed(1)
+        : 0;
+      const avgEnergy = thisWeekLogs.filter(l => l.energyLevel).length > 0
+        ? (thisWeekLogs.reduce((sum, l) => sum + (l.energyLevel || 0), 0) / thisWeekLogs.filter(l => l.energyLevel).length).toFixed(1)
+        : 0;
+
+      const workoutDays = new Set(thisWeekExercise.map(e => e.logDate)).size;
+      const logsWithWeight = thisWeekLogs.filter(l => l.weightKg);
+      const weekStartWeight = logsWithWeight.length > 0 ? logsWithWeight[logsWithWeight.length - 1]?.weightKg : null;
+      const weekEndWeight = logsWithWeight.length > 0 ? logsWithWeight[0]?.weightKg : null;
+      const weightChange = weekStartWeight && weekEndWeight ? (weekEndWeight - weekStartWeight).toFixed(1) : null;
+
+      // Previous week comparison
+      const prevAvgCalories = prevWeekLogs.length > 0
+        ? Math.round(prevWeekLogs.reduce((sum, l) => sum + (l.caloriesConsumed || 0), 0) / prevWeekLogs.length)
+        : 0;
+
+      const weekData = {
+        period: `${startDate} to ${endDate}`,
+        daysLogged: thisWeekLogs.length,
+        nutrition: {
+          avgCalories,
+          avgProtein,
+          targetCalories: profile.targetCalories,
+          targetProtein: profile.proteinGrams,
+          calorieAdherence: profile.targetCalories ? Math.round((avgCalories / profile.targetCalories) * 100) : 0,
+          proteinAdherence: profile.proteinGrams ? Math.round((avgProtein / profile.proteinGrams) * 100) : 0,
+          vsLastWeek: prevAvgCalories ? avgCalories - prevAvgCalories : 0,
+        },
+        activity: {
+          avgSteps,
+          targetSteps: profile.dailyStepsTarget || 8000,
+          workoutDays,
+        },
+        biofeedback: {
+          avgSleep,
+          avgEnergy,
+        },
+        weight: {
+          start: weekStartWeight,
+          end: weekEndWeight,
+          change: weightChange,
+        },
+        phase: profile.currentPhase,
+      };
+
+      // Generate AI weekly summary
+      const openai = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
+
+      const aiResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a health coach generating a weekly progress report. Be encouraging but honest.
+
+User's coaching tone: ${profile.coachingTone || "empathetic"}
+Current phase: ${profile.currentPhase || "assessment"}
+
+Return a JSON object with:
+{
+  "headline": "Brief 5-8 word summary of the week (e.g., 'Strong Week with Room for Protein')",
+  "wins": ["Array of 2-3 specific wins from this week"],
+  "improvements": ["Array of 1-2 areas to focus on next week"],
+  "recommendation": "One specific action for next week",
+  "motivationalNote": "Brief encouraging message for the week ahead"
+}`
+          },
+          {
+            role: "user",
+            content: `Generate a weekly report for this data:\n${JSON.stringify(weekData, null, 2)}`
+          }
+        ],
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+      });
+
+      const aiSummary = JSON.parse(aiResponse.choices[0]?.message?.content || "{}");
+
+      res.json({
+        ...weekData,
+        aiSummary,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error generating weekly report:", error);
+      res.status(500).json({ error: "Failed to generate weekly report" });
+    }
+  });
+
+  // ==================== AI Workout Plan Generation ====================
+
+  app.get("/api/workout-plan", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      const assessment = await storage.getOnboardingAssessment(userId);
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 14), "yyyy-MM-dd");
+      const recentExercise = await storage.getExerciseLogsRange(userId, startDate, endDate);
+      const recentLogs = await storage.getDailyLogs(userId, startDate, endDate);
+      const healthNotes = await storage.getRecentHealthNotes(userId, 14);
+
+      // Calculate recovery metrics
+      const avgSleep = recentLogs.filter(l => l.sleepHours).length > 0
+        ? recentLogs.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / recentLogs.filter(l => l.sleepHours).length
+        : 7;
+      const avgEnergy = recentLogs.filter(l => l.energyLevel).length > 0
+        ? recentLogs.reduce((sum, l) => sum + (l.energyLevel || 0), 0) / recentLogs.filter(l => l.energyLevel).length
+        : 6;
+      const avgStress = recentLogs.filter(l => l.stressLevel).length > 0
+        ? recentLogs.reduce((sum, l) => sum + (l.stressLevel || 0), 0) / recentLogs.filter(l => l.stressLevel).length
+        : 5;
+
+      const workoutContext = {
+        phase: profile.currentPhase || "recomp",
+        age: profile.age,
+        sex: profile.sex,
+        experienceLevel: assessment?.resistanceTrainingFrequency || 0,
+        currentWeightKg: profile.currentWeightKg,
+        recentWorkouts: recentExercise.map(e => ({
+          date: e.logDate,
+          exercise: e.exerciseName,
+          sets: e.completedSets,
+        })),
+        workoutDaysLast14: new Set(recentExercise.map(e => e.logDate)).size,
+        biofeedback: { avgSleep, avgEnergy, avgStress },
+        healthNotes: healthNotes.map(n => n.content),
+        targetWorkoutsPerWeek: assessment?.resistanceTrainingFrequency || 4,
+      };
+
+      const openai = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
+
+      const aiResponse = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert strength and conditioning coach creating a personalized weekly workout plan.
+
+Current phase: ${profile.currentPhase}
+Phase guidelines:
+- Recovery: Focus on mobility, light resistance (RIR 4+), low-impact cardio. 2-3 sessions max.
+- Recomp: 3-4 strength sessions, RIR 2-3, moderate cardio, optional HIIT. Build muscle while maintaining.
+- Cutting: Heavy compounds (lower volume), metabolic finishers, HIIT, maintain strength. Don't overtrain.
+
+IMPORTANT: Check health notes for any injuries or limitations and adjust accordingly.
+
+Return a JSON object with this exact structure:
+{
+  "weeklyPlan": [
+    {
+      "day": "Monday",
+      "type": "strength" | "cardio" | "recovery" | "rest",
+      "focus": "e.g., Upper Body Push",
+      "duration": 45,
+      "exercises": [
+        {
+          "name": "Bench Press",
+          "sets": 4,
+          "reps": "8-10",
+          "rir": 2,
+          "notes": "Focus on controlled eccentric"
+        }
+      ],
+      "warmup": "5 min light cardio + dynamic stretches",
+      "cooldown": "5 min stretching"
+    }
+  ],
+  "weeklyVolume": {
+    "strengthSessions": 4,
+    "cardioSessions": 2,
+    "totalMinutes": 270
+  },
+  "phaseNotes": "Brief explanation of why this plan fits the current phase",
+  "recoveryTips": ["Array of 2-3 recovery tips based on biofeedback"]
+}`
+          },
+          {
+            role: "user",
+            content: `Create a weekly workout plan for this user:\n${JSON.stringify(workoutContext, null, 2)}`
+          }
+        ],
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+      });
+
+      const workoutPlan = JSON.parse(aiResponse.choices[0]?.message?.content || "{}");
+
+      res.json({
+        ...workoutPlan,
+        generatedFor: profile.firstName || "User",
+        phase: profile.currentPhase,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error generating workout plan:", error);
+      res.status(500).json({ error: "Failed to generate workout plan" });
+    }
+  });
+
+  // ==================== Recovery Score ====================
+
+  app.get("/api/recovery-score", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const today = format(new Date(), "yyyy-MM-dd");
+      const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
+
+      const todayLog = await storage.getDailyLog(userId, today);
+      const yesterdayLog = await storage.getDailyLog(userId, yesterday);
+      const profile = await storage.getProfile(userId);
+      const recentLogs = await storage.getDailyLogs(userId, format(subDays(new Date(), 7), "yyyy-MM-dd"), today);
+
+      // Use yesterday's data for today's recovery score (sleep affects next day)
+      const sleepScore = yesterdayLog?.sleepHours
+        ? Math.min(100, (yesterdayLog.sleepHours / 8) * 100)
+        : 70;
+      const sleepQualityScore = yesterdayLog?.sleepQuality
+        ? yesterdayLog.sleepQuality * 10
+        : 60;
+      const energyScore = todayLog?.energyLevel
+        ? todayLog.energyLevel * 10
+        : 60;
+      const stressScore = todayLog?.stressLevel
+        ? (11 - todayLog.stressLevel) * 10 // Invert: low stress = high score
+        : 60;
+
+      // Check for consecutive workout days (affects recovery)
+      const recentExercise = await storage.getExerciseLogsRange(
+        userId,
+        format(subDays(new Date(), 3), "yyyy-MM-dd"),
+        today
+      );
+      const consecutiveWorkoutDays = new Set(recentExercise.map(e => e.logDate)).size;
+      const workoutFatigue = Math.max(0, (consecutiveWorkoutDays - 1) * 10);
+
+      // Calculate weighted recovery score
+      const rawScore = (
+        sleepScore * 0.3 +
+        sleepQualityScore * 0.2 +
+        energyScore * 0.25 +
+        stressScore * 0.25
+      ) - workoutFatigue;
+
+      const recoveryScore = Math.max(0, Math.min(100, Math.round(rawScore)));
+
+      // Determine recovery status
+      let status: "optimal" | "good" | "moderate" | "low";
+      let recommendation: string;
+
+      if (recoveryScore >= 80) {
+        status = "optimal";
+        recommendation = "Great recovery! You're ready for an intense workout today.";
+      } else if (recoveryScore >= 60) {
+        status = "good";
+        recommendation = "Good recovery. Normal training is fine, listen to your body.";
+      } else if (recoveryScore >= 40) {
+        status = "moderate";
+        recommendation = "Recovery is moderate. Consider lighter intensity or focus on technique.";
+      } else {
+        status = "low";
+        recommendation = "Low recovery detected. Prioritize rest, mobility work, or light cardio.";
+      }
+
+      res.json({
+        score: recoveryScore,
+        status,
+        recommendation,
+        factors: {
+          sleepHours: yesterdayLog?.sleepHours || null,
+          sleepQuality: yesterdayLog?.sleepQuality || null,
+          energyLevel: todayLog?.energyLevel || null,
+          stressLevel: todayLog?.stressLevel || null,
+          consecutiveWorkoutDays,
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error calculating recovery score:", error);
+      res.status(500).json({ error: "Failed to calculate recovery score" });
+    }
+  });
+
+  // ==================== AI Meal Suggestions ====================
+
+  app.get("/api/meal-suggestions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+      const today = format(new Date(), "yyyy-MM-dd");
+      const todayFood = await storage.getFoodEntries(userId, today);
+
+      if (!profile) {
+        res.status(404).json({ error: "Profile not found" });
+        return;
+      }
+
+      // Calculate remaining macros
+      const consumed = {
+        calories: todayFood.reduce((sum, f) => sum + (f.calories || 0), 0),
+        protein: todayFood.reduce((sum, f) => sum + (f.proteinGrams || 0), 0),
+        carbs: todayFood.reduce((sum, f) => sum + (f.carbsGrams || 0), 0),
+        fat: todayFood.reduce((sum, f) => sum + (f.fatGrams || 0), 0),
+      };
+
+      const remaining = {
+        calories: (profile.targetCalories || 2000) - consumed.calories,
+        protein: (profile.proteinGrams || 150) - consumed.protein,
+        carbs: (profile.carbsGrams || 200) - consumed.carbs,
+        fat: (profile.fatGrams || 65) - consumed.fat,
+      };
+
+      const mealsLogged = todayFood.map(f => f.mealType);
+      const currentHour = new Date().getHours();
+
+      // Determine next meal type
+      let suggestedMealType = "snack";
+      if (currentHour < 10 && !mealsLogged.includes("breakfast")) {
+        suggestedMealType = "breakfast";
+      } else if (currentHour >= 10 && currentHour < 14 && !mealsLogged.includes("lunch")) {
+        suggestedMealType = "lunch";
+      } else if (currentHour >= 17 && !mealsLogged.includes("dinner")) {
+        suggestedMealType = "dinner";
+      }
+
+      const openai = new (await import("openai")).default({ apiKey: process.env.OPENAI_API_KEY });
+
+      const aiResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a nutrition coach suggesting meal ideas to help hit macro targets.
+
+Current phase: ${profile.currentPhase}
+Meal type needed: ${suggestedMealType}
+
+Return a JSON object:
+{
+  "suggestions": [
+    {
+      "name": "Meal name",
+      "description": "Brief description",
+      "estimatedMacros": {
+        "calories": 400,
+        "protein": 35,
+        "carbs": 30,
+        "fat": 15
+      },
+      "ingredients": ["ingredient 1", "ingredient 2"],
+      "prepTime": "10 min",
+      "proteinFocused": true
+    }
+  ],
+  "tip": "Quick tip about hitting remaining macros"
+}
+
+Prioritize high-protein options if protein remaining is significant.
+Suggest 3 options ranging from quick/easy to more elaborate.`
+          },
+          {
+            role: "user",
+            content: `Suggest ${suggestedMealType} options.
+
+Remaining macros needed today:
+- Calories: ${remaining.calories}
+- Protein: ${remaining.protein}g
+- Carbs: ${remaining.carbs}g
+- Fat: ${remaining.fat}g
+
+Already eaten today: ${todayFood.map(f => f.foodName).join(", ") || "Nothing logged yet"}`
+          }
+        ],
+        temperature: 0.8,
+        response_format: { type: "json_object" },
+      });
+
+      const suggestions = JSON.parse(aiResponse.choices[0]?.message?.content || "{}");
+
+      res.json({
+        mealType: suggestedMealType,
+        remaining,
+        consumed,
+        targets: {
+          calories: profile.targetCalories,
+          protein: profile.proteinGrams,
+          carbs: profile.carbsGrams,
+          fat: profile.fatGrams,
+        },
+        ...suggestions,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error generating meal suggestions:", error);
+      res.status(500).json({ error: "Failed to generate meal suggestions" });
+    }
+  });
+
+  // ==================== Streak/Consistency Tracking ====================
+
+  app.get("/api/streaks", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const endDate = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 60), "yyyy-MM-dd"); // Last 60 days
+
+      const logs = await storage.getDailyLogs(userId, startDate, endDate);
+      const foodEntries = await storage.getFoodEntriesRange(userId, startDate, endDate);
+      const exerciseLogs = await storage.getExerciseLogsRange(userId, startDate, endDate);
+
+      // Calculate streaks
+      const loggingDates = new Set(logs.map(l => l.logDate));
+      const workoutDates = new Set(exerciseLogs.map(e => e.logDate));
+      const foodDates = new Set(foodEntries.map(f => f.logDate));
+
+      const calculateStreak = (dates: Set<string>): { current: number; longest: number } => {
+        let currentStreak = 0;
+        let longestStreak = 0;
+        let tempStreak = 0;
+
+        const today = format(new Date(), "yyyy-MM-dd");
+        const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
+
+        // Check if streak is active (logged today or yesterday)
+        const streakActive = dates.has(today) || dates.has(yesterday);
+
+        for (let i = 0; i < 60; i++) {
+          const checkDate = format(subDays(new Date(), i), "yyyy-MM-dd");
+          if (dates.has(checkDate)) {
+            tempStreak++;
+            if (streakActive && i === 0 || (streakActive && i > 0 && dates.has(format(subDays(new Date(), i - 1), "yyyy-MM-dd")))) {
+              currentStreak = tempStreak;
+            }
+            longestStreak = Math.max(longestStreak, tempStreak);
+          } else {
+            tempStreak = 0;
+          }
+        }
+
+        return { current: currentStreak, longest: longestStreak };
+      };
+
+      const loggingStreak = calculateStreak(loggingDates);
+      const workoutStreak = calculateStreak(workoutDates);
+      const nutritionStreak = calculateStreak(foodDates);
+
+      // Calculate consistency percentages
+      const daysInPeriod = 30;
+      const loggingConsistency = Math.round((loggingDates.size / daysInPeriod) * 100);
+      const workoutConsistency = Math.round((workoutDates.size / daysInPeriod) * 100);
+
+      res.json({
+        logging: {
+          currentStreak: loggingStreak.current,
+          longestStreak: loggingStreak.longest,
+          last30DaysConsistency: loggingConsistency,
+        },
+        workouts: {
+          currentStreak: workoutStreak.current,
+          longestStreak: workoutStreak.longest,
+          last30DaysConsistency: workoutConsistency,
+          totalWorkoutsLast30: workoutDates.size,
+        },
+        nutrition: {
+          currentStreak: nutritionStreak.current,
+          longestStreak: nutritionStreak.longest,
+          daysLoggedLast30: foodDates.size,
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error calculating streaks:", error);
+      res.status(500).json({ error: "Failed to calculate streaks" });
     }
   });
 
