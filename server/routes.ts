@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput, openai } from "./openai";
-import { generateInsights } from "./insights";
+import { generateInsights, generateDayOneInsight, generateFirstWeekReport } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { searchUSDAFoods } from "./foodApi";
 import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from "./aiRecommendations";
@@ -77,6 +77,76 @@ function getPhaseWorkoutMessage(phase: string): string {
         "Keep strength training to preserve muscle mass.";
     default:
       return "Complete your assessment to get personalized workout recommendations based on your goals and metabolic state.";
+  }
+}
+
+// Helper to check and create streak milestones
+async function checkStreakMilestones(userId: string): Promise<void> {
+  try {
+    const profile = await storage.getProfile(userId);
+    if (!profile) return;
+
+    // Get logs for last 7 days
+    const today = new Date();
+    const logs: { date: string; hasActivity: boolean }[] = [];
+
+    for (let i = 0; i < 7; i++) {
+      const date = format(subDays(today, i), "yyyy-MM-dd");
+      const dailyLog = await storage.getDailyLog(userId, date);
+      const foodEntries = await storage.getFoodEntries(userId, date);
+      const exerciseLogs = await storage.getExerciseLogs(userId, date);
+
+      const hasActivity = !!dailyLog || foodEntries.length > 0 || exerciseLogs.length > 0;
+      logs.push({ date, hasActivity });
+    }
+
+    // Check consecutive days from today
+    let streak = 0;
+    for (const log of logs) {
+      if (log.hasActivity) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // Day 2 streak milestone
+    if (streak >= 2) {
+      const existingDay2 = await storage.getUserMilestone(userId, "day_2_streak");
+      if (!existingDay2) {
+        await storage.createUserMilestone({
+          userId,
+          milestoneKey: "day_2_streak",
+          data: { streak: 2 },
+        });
+      }
+    }
+
+    // Day 3 milestone
+    if (streak >= 3) {
+      const existingDay3 = await storage.getUserMilestone(userId, "day_3");
+      if (!existingDay3) {
+        await storage.createUserMilestone({
+          userId,
+          milestoneKey: "day_3",
+          data: { streak: 3 },
+        });
+      }
+    }
+
+    // First week milestone (7 days)
+    if (streak >= 7) {
+      const existingFirstWeek = await storage.getUserMilestone(userId, "first_week");
+      if (!existingFirstWeek) {
+        await storage.createUserMilestone({
+          userId,
+          milestoneKey: "first_week",
+          data: { streak: 7 },
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Error checking streak milestones:", error);
   }
 }
 
@@ -425,6 +495,156 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // ==================== User Milestones Routes ====================
+
+  // Get all milestones for the user
+  app.get("/api/milestones", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const milestones = await storage.getUserMilestones(getUserId(req));
+      const unseenMilestones = milestones.filter(m => !m.seenAt);
+
+      // Define all possible milestone keys with their requirements
+      const allMilestoneKeys = [
+        { key: "first_food_log", requiredAction: "Log your first food entry" },
+        { key: "first_workout", requiredAction: "Complete your first workout" },
+        { key: "day_2_streak", requiredAction: "Log for 2 consecutive days" },
+        { key: "day_3", requiredAction: "Log for 3 consecutive days" },
+        { key: "first_week", requiredAction: "Complete your first week" },
+      ];
+
+      // Build milestone status list
+      const milestoneStatus = allMilestoneKeys.map(mk => {
+        const achieved = milestones.find(m => m.milestoneKey === mk.key);
+        return {
+          key: mk.key,
+          achieved: !!achieved,
+          achievedAt: achieved?.achievedAt || null,
+          seen: achieved?.seenAt ? true : false,
+          data: achieved?.data || null,
+        };
+      });
+
+      // Find next unachieved milestone
+      const nextMilestone = allMilestoneKeys.find(mk =>
+        !milestones.some(m => m.milestoneKey === mk.key)
+      ) || null;
+
+      res.json({
+        milestones: milestoneStatus,
+        unseenCount: unseenMilestones.length,
+        nextMilestone,
+      });
+    } catch (error) {
+      console.error("Error fetching milestones:", error);
+      res.status(500).json({ error: "Failed to fetch milestones" });
+    }
+  });
+
+  // Mark a milestone as seen
+  app.post("/api/milestones/:key/seen", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { key } = req.params;
+      const milestone = await storage.markMilestoneSeen(getUserId(req), key);
+
+      if (!milestone) {
+        res.status(404).json({ error: "Milestone not found" });
+        return;
+      }
+
+      res.json({ success: true, milestone });
+    } catch (error) {
+      console.error("Error marking milestone as seen:", error);
+      res.status(500).json({ error: "Failed to update milestone" });
+    }
+  });
+
+  // ==================== Progressive Prompts Routes ====================
+
+  // Get the next progressive prompt to show the user
+  app.get("/api/onboarding/next-prompt", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const nextPrompt = await storage.getNextProgressivePrompt(getUserId(req));
+      res.json(nextPrompt);
+    } catch (error) {
+      console.error("Error fetching next prompt:", error);
+      res.status(500).json({ error: "Failed to fetch next prompt" });
+    }
+  });
+
+  // Save a progressive prompt answer
+  app.post("/api/onboarding/progressive", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { promptKey, value, skipped } = req.body;
+
+      if (!promptKey) {
+        res.status(400).json({ error: "promptKey is required" });
+        return;
+      }
+
+      // Check if already answered
+      const existing = await storage.getProgressivePrompt(getUserId(req), promptKey);
+      if (existing) {
+        res.status(400).json({ error: "Prompt already answered" });
+        return;
+      }
+
+      // Save the prompt response
+      await storage.createProgressivePrompt({
+        userId: getUserId(req),
+        promptKey,
+        value: skipped ? null : value,
+        skipped: skipped || false,
+      });
+
+      // Get the next prompt to return
+      const nextPrompt = await storage.getNextProgressivePrompt(getUserId(req));
+
+      res.json({ success: true, nextPrompt });
+    } catch (error) {
+      console.error("Error saving progressive prompt:", error);
+      res.status(500).json({ error: "Failed to save prompt response" });
+    }
+  });
+
+  // Get all answered progressive prompts
+  app.get("/api/onboarding/progressive", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const prompts = await storage.getProgressivePrompts(getUserId(req));
+      res.json(prompts);
+    } catch (error) {
+      console.error("Error fetching progressive prompts:", error);
+      res.status(500).json({ error: "Failed to fetch prompts" });
+    }
+  });
+
+  // ==================== First-Week Magic Routes ====================
+
+  // Get Day 1 insight based on assessment data (no logs required)
+  app.get("/api/insights/day-one", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const insight = await generateDayOneInsight(getUserId(req));
+      res.json({ insight });
+    } catch (error) {
+      console.error("Error generating day one insight:", error);
+      res.status(500).json({ error: "Failed to generate insight" });
+    }
+  });
+
+  // Get first week report (for day 7 milestone)
+  app.get("/api/first-week-report", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const report = await generateFirstWeekReport(getUserId(req));
+      if (!report) {
+        res.status(404).json({ error: "Could not generate report" });
+        return;
+      }
+      res.json(report);
+    } catch (error) {
+      console.error("Error generating first week report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
   // ==================== Daily Log Routes ====================
 
   app.get("/api/daily-logs/today", isAuthenticated, async (req: Request, res: Response) => {
@@ -507,13 +727,28 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         res.status(400).json({ error: "Invalid food entry data", details: parseResult.error.flatten() });
         return;
       }
-      
+
+      const userId = getUserId(req);
       const data = {
         ...parseResult.data,
-        userId: getUserId(req),
+        userId,
       };
-      
+
       const entry = await storage.createFoodEntry(data);
+
+      // Check and trigger first_food_log milestone
+      const existingMilestone = await storage.getUserMilestone(userId, "first_food_log");
+      if (!existingMilestone) {
+        await storage.createUserMilestone({
+          userId,
+          milestoneKey: "first_food_log",
+          data: { foodName: entry.foodName, calories: entry.calories },
+        });
+      }
+
+      // Check for streak milestones
+      await checkStreakMilestones(userId);
+
       res.json(entry);
     } catch (error) {
       console.error("Error creating food entry:", error);
@@ -561,10 +796,25 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         return;
       }
 
+      const userId = getUserId(req);
       const log = await storage.createExerciseLog({
         ...parseResult.data,
-        userId: getUserId(req),
+        userId,
       });
+
+      // Check and trigger first_workout milestone
+      const existingMilestone = await storage.getUserMilestone(userId, "first_workout");
+      if (!existingMilestone) {
+        await storage.createUserMilestone({
+          userId,
+          milestoneKey: "first_workout",
+          data: { exerciseName: log.exerciseName },
+        });
+      }
+
+      // Check for streak milestones
+      await checkStreakMilestones(userId);
+
       res.json(log);
     } catch (error) {
       console.error("Error creating exercise log:", error);

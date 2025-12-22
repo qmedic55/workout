@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import type { DailyLog, UserProfile } from "@shared/schema";
+import type { DailyLog, UserProfile, OnboardingAssessment } from "@shared/schema";
 
 export interface HealthInsight {
   id: string;
@@ -401,4 +401,238 @@ export async function generateInsights(userId: string): Promise<HealthInsight[]>
 
   // Sort by priority (highest first) and return top 5
   return insights.sort((a, b) => b.priority - a.priority).slice(0, 5);
+}
+
+/**
+ * Generates a Day 1 insight based on assessment data only.
+ * This is shown immediately after onboarding before any data is logged.
+ */
+export async function generateDayOneInsight(userId: string): Promise<string> {
+  const profile = await storage.getProfile(userId);
+  const assessment = await storage.getOnboardingAssessment(userId);
+
+  if (!profile || !assessment) {
+    return "Welcome to VitalPath! Start logging your meals and workouts to get personalized insights.";
+  }
+
+  const insights: string[] = [];
+  const firstName = profile.firstName || "there";
+
+  // Stress-based insight
+  if (assessment.stressLevel && assessment.stressLevel >= 7) {
+    insights.push(
+      `I notice your stress levels are elevated (${assessment.stressLevel}/10). ` +
+      `High cortisol can make fat loss harder and impair recovery. I'll factor this into your recommendations ` +
+      `and suggest recovery-focused workouts when appropriate.`
+    );
+  }
+
+  // Sleep-based insight
+  if (assessment.averageSleepHours && assessment.averageSleepHours < 6) {
+    insights.push(
+      `Sleep is your secret weapon for results, especially after 40. ` +
+      `With an average of ${assessment.averageSleepHours} hours, improving sleep will accelerate everything else—` +
+      `from fat loss to muscle recovery to energy levels.`
+    );
+  } else if (assessment.sleepQuality && assessment.sleepQuality <= 4) {
+    // sleepQuality is 1-10 scale, 4 or below is considered poor
+    insights.push(
+      `I see sleep quality has been a challenge (${assessment.sleepQuality}/10). Even with enough hours, poor quality sleep affects ` +
+      `recovery and hormone balance. We'll work on strategies to improve this.`
+    );
+  }
+
+  // Dieting history insight
+  if (assessment.hasBeenDietingRecently && assessment.dietingDurationMonths && assessment.dietingDurationMonths > 3) {
+    insights.push(
+      `You've been dieting for ${assessment.dietingDurationMonths} months. ` +
+      `Your metabolism likely needs some restoration before pushing for aggressive fat loss. ` +
+      `That's why we're starting with a ${profile.currentPhase === 'recovery' ? 'Recovery' : 'measured'} approach—` +
+      `sustainable results come from a healthy metabolism.`
+    );
+  }
+
+  // Sedentary lifestyle insight
+  if (assessment.activityLevel === 'sedentary') {
+    insights.push(
+      `With a sedentary lifestyle, small movement wins add up big. ` +
+      `Your ${profile.dailyStepsTarget || 8000} step target might seem modest, but consistently hitting it burns ` +
+      `an extra 300+ calories daily and improves insulin sensitivity.`
+    );
+  }
+
+  // Energy level insights
+  if (assessment.energyLevelMorning && assessment.energyLevelMorning < 5) {
+    insights.push(
+      `Morning energy levels are low (${assessment.energyLevelMorning}/10). ` +
+      `This often connects to sleep quality, blood sugar balance, or adrenal fatigue. ` +
+      `We'll track this pattern and work on strategies to improve it.`
+    );
+  }
+
+  // Resistance training background
+  if (!assessment.doesResistanceTraining) {
+    insights.push(
+      `I see you're not currently doing resistance training. ` +
+      `After 40, maintaining muscle becomes crucial for metabolism and longevity. ` +
+      `We'll ease you into a beginner-friendly strength program when you're ready.`
+    );
+  }
+
+  // Return the most relevant insight, or a default welcome message
+  if (insights.length > 0) {
+    return insights[0];
+  }
+
+  // Default welcome insight based on phase
+  const phaseMessages: Record<string, string> = {
+    recovery: `Based on your profile, we're starting with a metabolic recovery phase. ` +
+      `This means eating at or slightly above maintenance to restore your metabolism. ` +
+      `It might feel counterintuitive, but this foundation is essential for sustainable results.`,
+    recomp: `Your profile suggests you're ready for body recomposition—` +
+      `building muscle while gradually losing fat. Focus on hitting your protein target (${profile.proteinGrams}g) ` +
+      `and consistent strength training.`,
+    cutting: `You're set up for a fat loss phase. With your targets at ${profile.targetCalories} calories ` +
+      `and ${profile.proteinGrams}g protein, you'll lose fat while preserving muscle. ` +
+      `Consistency is key—log your meals and workouts to stay on track.`,
+  };
+
+  return phaseMessages[profile.currentPhase || 'recovery'] ||
+    `Welcome, ${firstName}! I've set you up with personalized targets optimized for sustainable progress. ` +
+    `Focus on consistency first—just show up every day, even if it's just logging one meal.`;
+}
+
+/**
+ * Generates the first week report for day 7 milestone.
+ */
+export async function generateFirstWeekReport(userId: string): Promise<{
+  loggingStats: { daysLogged: number; mealsLogged: number };
+  nutritionStats: { avgCalories: number; avgProtein: number; proteinPercent: number };
+  activityStats: { avgSteps: number; workoutsCompleted: number };
+  biofeedbackStats: { avgSleep: number; avgEnergy: number };
+  coachAnalysis: { wins: string[]; focusAreas: string[]; message: string };
+} | null> {
+  const profile = await storage.getProfile(userId);
+  if (!profile) return null;
+
+  // Get last 7 days of data
+  const endDate = new Date().toISOString().split("T")[0];
+  const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+  const logs = await storage.getDailyLogs(userId, startDate, endDate);
+  const daysWithData = logs.filter(l =>
+    l.caloriesConsumed || l.steps || l.sleepHours || l.workoutCompleted
+  );
+
+  // Get food entries for meal count
+  const foodEntriesPromises = [];
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    foodEntriesPromises.push(storage.getFoodEntries(userId, date));
+  }
+  const allFoodEntries = (await Promise.all(foodEntriesPromises)).flat();
+
+  // Calculate stats
+  const loggingStats = {
+    daysLogged: daysWithData.length,
+    mealsLogged: allFoodEntries.length,
+  };
+
+  const logsWithCalories = logs.filter(l => l.caloriesConsumed);
+  const avgCalories = logsWithCalories.length > 0
+    ? Math.round(logsWithCalories.reduce((sum, l) => sum + (l.caloriesConsumed || 0), 0) / logsWithCalories.length)
+    : 0;
+
+  const logsWithProtein = logs.filter(l => l.proteinGrams);
+  const avgProtein = logsWithProtein.length > 0
+    ? Math.round(logsWithProtein.reduce((sum, l) => sum + (l.proteinGrams || 0), 0) / logsWithProtein.length)
+    : 0;
+
+  const targetProtein = profile.proteinGrams || 120;
+  const proteinPercent = targetProtein > 0 ? Math.round((avgProtein / targetProtein) * 100) : 0;
+
+  const nutritionStats = { avgCalories, avgProtein, proteinPercent };
+
+  const logsWithSteps = logs.filter(l => l.steps);
+  const avgSteps = logsWithSteps.length > 0
+    ? Math.round(logsWithSteps.reduce((sum, l) => sum + (l.steps || 0), 0) / logsWithSteps.length)
+    : 0;
+
+  const workoutsCompleted = logs.filter(l => l.workoutCompleted).length;
+
+  const activityStats = { avgSteps, workoutsCompleted };
+
+  const logsWithSleep = logs.filter(l => l.sleepHours);
+  const avgSleep = logsWithSleep.length > 0
+    ? Math.round(logsWithSleep.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / logsWithSleep.length * 10) / 10
+    : 0;
+
+  const logsWithEnergy = logs.filter(l => l.energyLevel);
+  const avgEnergy = logsWithEnergy.length > 0
+    ? Math.round(logsWithEnergy.reduce((sum, l) => sum + (l.energyLevel || 0), 0) / logsWithEnergy.length * 10) / 10
+    : 0;
+
+  const biofeedbackStats = { avgSleep, avgEnergy };
+
+  // Generate coach analysis
+  const wins: string[] = [];
+  const focusAreas: string[] = [];
+
+  if (loggingStats.daysLogged >= 5) {
+    wins.push(`Logged ${loggingStats.daysLogged} of 7 days (above average!)`);
+  } else if (loggingStats.daysLogged >= 3) {
+    focusAreas.push("Aim for more consistent daily logging");
+  }
+
+  if (proteinPercent >= 90) {
+    wins.push(`Protein averaging ${proteinPercent}% of target`);
+  } else if (proteinPercent < 70) {
+    focusAreas.push(`Bump protein intake by ~${Math.round((targetProtein - avgProtein) * 0.5)}g/day`);
+  }
+
+  if (workoutsCompleted >= 3) {
+    wins.push(`Completed ${workoutsCompleted} workouts`);
+  } else if (workoutsCompleted === 0) {
+    focusAreas.push("Try to fit in at least 2 workouts next week");
+  }
+
+  if (avgSleep >= 7) {
+    wins.push("Great sleep habits");
+  } else if (avgSleep > 0 && avgSleep < 6.5) {
+    focusAreas.push("Prioritize getting to bed earlier");
+  }
+
+  const stepsTarget = profile.dailyStepsTarget || 8000;
+  if (avgSteps >= stepsTarget) {
+    wins.push("Hit your daily step target consistently");
+  } else if (avgSteps > 0 && avgSteps < stepsTarget * 0.7) {
+    focusAreas.push(`Add ${Math.round((stepsTarget - avgSteps) / 1000)}k more daily steps gradually`);
+  }
+
+  const firstName = profile.firstName || "there";
+  let message = `Great first week, ${firstName}! `;
+
+  if (wins.length >= 3) {
+    message += "Your consistency is exactly what builds lasting change. ";
+  } else if (wins.length >= 1) {
+    message += "You're building good habits. ";
+  } else {
+    message += "Every journey starts somewhere. ";
+  }
+
+  if (focusAreas.length > 0) {
+    message += `For week 2, focus on: ${focusAreas.slice(0, 2).join(" and ")}.`;
+  } else {
+    message += "Keep up the momentum!";
+  }
+
+  const coachAnalysis = { wins, focusAreas, message };
+
+  return {
+    loggingStats,
+    nutritionStats,
+    activityStats,
+    biofeedbackStats,
+    coachAnalysis,
+  };
 }

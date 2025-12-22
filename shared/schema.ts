@@ -434,6 +434,50 @@ export const shareEvents = pgTable("share_events", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// User milestones - tracking first-week achievements and engagement milestones
+export const userMilestones = pgTable("user_milestones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  // Milestone identifier: first_food_log, first_workout, day_2_streak, day_3, first_week, etc.
+  milestoneKey: text("milestone_key").notNull(),
+
+  // When the milestone was achieved
+  achievedAt: timestamp("achieved_at").defaultNow(),
+
+  // Optional data associated with the milestone (e.g., stats at time of achievement)
+  data: jsonb("data").$type<Record<string, unknown>>(),
+
+  // When user dismissed/acknowledged the celebration
+  seenAt: timestamp("seen_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  uniqueUserMilestone: index("idx_user_milestones_unique").on(table.userId, table.milestoneKey),
+}));
+
+// Progressive onboarding prompts - tracks which follow-up questions have been shown/answered
+export const progressivePrompts = pgTable("progressive_prompts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  // Prompt identifier: energy_levels, dietary_restrictions, health_conditions, etc.
+  promptKey: text("prompt_key").notNull(),
+
+  // The value collected (stored as JSON for flexibility)
+  value: jsonb("value"),
+
+  // Whether user skipped this prompt
+  skipped: boolean("skipped").default(false),
+
+  // When user answered or skipped
+  answeredAt: timestamp("answered_at").defaultNow(),
+
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  uniqueUserPrompt: index("idx_progressive_prompts_unique").on(table.userId, table.promptKey),
+}));
+
 // Health notes - user-submitted context notes for AI coaching
 export const healthNotes = pgTable("health_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -511,6 +555,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [publicProfiles.userId],
   }),
   shareEvents: many(shareEvents),
+  userMilestones: many(userMilestones),
+  progressivePrompts: many(progressivePrompts),
 }));
 
 export const mealTemplatesRelations = relations(mealTemplates, ({ one }) => ({
@@ -556,6 +602,20 @@ export const publicProfilesRelations = relations(publicProfiles, ({ one }) => ({
 export const shareEventsRelations = relations(shareEvents, ({ one }) => ({
   user: one(users, {
     fields: [shareEvents.userId],
+    references: [users.id],
+  }),
+}));
+
+export const userMilestonesRelations = relations(userMilestones, ({ one }) => ({
+  user: one(users, {
+    fields: [userMilestones.userId],
+    references: [users.id],
+  }),
+}));
+
+export const progressivePromptsRelations = relations(progressivePrompts, ({ one }) => ({
+  user: one(users, {
+    fields: [progressivePrompts.userId],
     references: [users.id],
   }),
 }));
@@ -745,6 +805,20 @@ export const insertShareEventSchema = createInsertSchema(shareEvents).omit({
   createdAt: true,
 });
 
+export const insertUserMilestoneSchema = createInsertSchema(userMilestones, {
+  data: z.record(z.unknown()).optional(),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertProgressivePromptSchema = createInsertSchema(progressivePrompts, {
+  value: z.unknown().optional(),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -798,3 +872,9 @@ export type PublicProfile = typeof publicProfiles.$inferSelect;
 
 export type InsertShareEvent = z.infer<typeof insertShareEventSchema>;
 export type ShareEvent = typeof shareEvents.$inferSelect;
+
+export type InsertUserMilestone = z.infer<typeof insertUserMilestoneSchema>;
+export type UserMilestone = typeof userMilestones.$inferSelect;
+
+export type InsertProgressivePrompt = z.infer<typeof insertProgressivePromptSchema>;
+export type ProgressivePrompt = typeof progressivePrompts.$inferSelect;

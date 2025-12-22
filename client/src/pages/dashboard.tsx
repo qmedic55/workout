@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QuickNote } from "@/components/quick-note";
+import { MilestoneCelebration, MilestoneProgress } from "@/components/milestone-celebration";
+import { WelcomeFlow } from "@/components/welcome-flow";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -300,6 +302,9 @@ export default function Dashboard() {
   const { toast } = useToast();
   const today = new Date().toISOString().split("T")[0];
 
+  // State for first-time welcome flow
+  const [showWelcomeFlow, setShowWelcomeFlow] = useState(false);
+
   // Parallel data fetching for better performance
   const results = useQueries({
     queries: [
@@ -373,6 +378,21 @@ export default function Dashboard() {
     }
   }, [profile, profileLoading, navigate]);
 
+  // Check if this is a first-time visit after onboarding
+  useEffect(() => {
+    if (profile?.onboardingCompleted) {
+      const welcomeShown = localStorage.getItem("vitalpath_welcome_shown");
+      if (!welcomeShown) {
+        setShowWelcomeFlow(true);
+      }
+    }
+  }, [profile]);
+
+  const handleDismissWelcome = () => {
+    localStorage.setItem("vitalpath_welcome_shown", "true");
+    setShowWelcomeFlow(false);
+  };
+
   const isLoading = profileLoading || logLoading;
 
   if (isLoading) {
@@ -385,6 +405,9 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Milestone Celebration Modal - auto-shows when milestones are achieved */}
+      <MilestoneCelebration />
+
       {/* Header with Sync Button */}
       <div className="flex items-center justify-between">
         <div>
@@ -407,14 +430,22 @@ export default function Dashboard() {
       {/* Quick Note - always visible at top for quick logging */}
       {profile?.onboardingCompleted && <QuickNote />}
 
+      {/* First-time Welcome Flow - shows after completing onboarding */}
+      {showWelcomeFlow && profile && (
+        <WelcomeFlow profile={profile} onDismiss={handleDismissWelcome} />
+      )}
+
+      {/* Milestone Progress - shows progress through first week */}
+      {profile?.onboardingCompleted && !showWelcomeFlow && <MilestoneProgress />}
+
       {/* Show WelcomeCard for new users, DailyGuidance for onboarded users */}
       {!profile?.onboardingCompleted ? (
         <WelcomeCard profile={profile} />
-      ) : (
+      ) : !showWelcomeFlow ? (
         <Suspense fallback={<Skeleton className="h-48 w-full" />}>
           <DailyGuidance />
         </Suspense>
-      )}
+      ) : null}
 
       {/* Rest Day Recommendation - shows when rest is suggested */}
       {profile?.onboardingCompleted && (

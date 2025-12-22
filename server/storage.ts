@@ -20,6 +20,8 @@ import {
   milestones,
   publicProfiles,
   shareEvents,
+  userMilestones,
+  progressivePrompts,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -55,6 +57,10 @@ import {
   type InsertPublicProfile,
   type ShareEvent,
   type InsertShareEvent,
+  type UserMilestone,
+  type InsertUserMilestone,
+  type ProgressivePrompt,
+  type InsertProgressivePrompt,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -174,6 +180,20 @@ export interface IStorage {
   // Share Events
   createShareEvent(event: InsertShareEvent): Promise<ShareEvent>;
   getShareEvents(userId: string, limit?: number): Promise<ShareEvent[]>;
+
+  // User Milestones (first-week engagement tracking)
+  getUserMilestones(userId: string): Promise<UserMilestone[]>;
+  getUserMilestone(userId: string, milestoneKey: string): Promise<UserMilestone | undefined>;
+  createUserMilestone(milestone: InsertUserMilestone): Promise<UserMilestone>;
+  markMilestoneSeen(userId: string, milestoneKey: string): Promise<UserMilestone | undefined>;
+  getUnseenMilestones(userId: string): Promise<UserMilestone[]>;
+
+  // Progressive Prompts (collect data over first week)
+  getProgressivePrompts(userId: string): Promise<ProgressivePrompt[]>;
+  getProgressivePrompt(userId: string, promptKey: string): Promise<ProgressivePrompt | undefined>;
+  createProgressivePrompt(prompt: InsertProgressivePrompt): Promise<ProgressivePrompt>;
+  getNextProgressivePrompt(userId: string): Promise<{ promptKey: string; question: string; options: { value: string; label: string }[]; skipLabel: string } | null>;
+  getAnsweredPromptKeys(userId: string): Promise<string[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1034,6 +1054,179 @@ export class DatabaseStorage implements IStorage {
       .where(eq(shareEvents.userId, userId))
       .orderBy(desc(shareEvents.createdAt))
       .limit(limit);
+  }
+
+  // User Milestones (first-week engagement tracking)
+  async getUserMilestones(userId: string): Promise<UserMilestone[]> {
+    return db
+      .select()
+      .from(userMilestones)
+      .where(eq(userMilestones.userId, userId))
+      .orderBy(desc(userMilestones.achievedAt));
+  }
+
+  async getUserMilestone(userId: string, milestoneKey: string): Promise<UserMilestone | undefined> {
+    const result = await db
+      .select()
+      .from(userMilestones)
+      .where(and(eq(userMilestones.userId, userId), eq(userMilestones.milestoneKey, milestoneKey)));
+    return result[0];
+  }
+
+  async createUserMilestone(milestone: InsertUserMilestone): Promise<UserMilestone> {
+    const result = await db.insert(userMilestones).values(milestone).returning();
+    return result[0];
+  }
+
+  async markMilestoneSeen(userId: string, milestoneKey: string): Promise<UserMilestone | undefined> {
+    const result = await db
+      .update(userMilestones)
+      .set({ seenAt: new Date() })
+      .where(and(eq(userMilestones.userId, userId), eq(userMilestones.milestoneKey, milestoneKey)))
+      .returning();
+    return result[0];
+  }
+
+  async getUnseenMilestones(userId: string): Promise<UserMilestone[]> {
+    const allMilestones = await this.getUserMilestones(userId);
+    return allMilestones.filter(m => !m.seenAt);
+  }
+
+  // Progressive Prompts (collect data over first week)
+  async getProgressivePrompts(userId: string): Promise<ProgressivePrompt[]> {
+    return db
+      .select()
+      .from(progressivePrompts)
+      .where(eq(progressivePrompts.userId, userId))
+      .orderBy(desc(progressivePrompts.answeredAt));
+  }
+
+  async getProgressivePrompt(userId: string, promptKey: string): Promise<ProgressivePrompt | undefined> {
+    const result = await db
+      .select()
+      .from(progressivePrompts)
+      .where(and(eq(progressivePrompts.userId, userId), eq(progressivePrompts.promptKey, promptKey)));
+    return result[0];
+  }
+
+  async createProgressivePrompt(prompt: InsertProgressivePrompt): Promise<ProgressivePrompt> {
+    const result = await db.insert(progressivePrompts).values(prompt).returning();
+    return result[0];
+  }
+
+  async getAnsweredPromptKeys(userId: string): Promise<string[]> {
+    const prompts = await this.getProgressivePrompts(userId);
+    return prompts.map(p => p.promptKey);
+  }
+
+  /**
+   * Returns the next progressive prompt that hasn't been answered yet.
+   * Prompts are shown based on day since signup and context.
+   */
+  async getNextProgressivePrompt(userId: string): Promise<{ promptKey: string; question: string; options: { value: string; label: string }[]; skipLabel: string } | null> {
+    const answeredKeys = await this.getAnsweredPromptKeys(userId);
+
+    // Get onboarding assessment to check signup date
+    const assessment = await this.getOnboardingAssessment(userId);
+    if (!assessment) return null;
+
+    // Calculate days since onboarding completion
+    const createdAt = assessment.createdAt ? new Date(assessment.createdAt) : new Date();
+    const daysSinceSignup = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Progressive prompts ordered by day they should appear
+    const allPrompts = [
+      {
+        day: 1,
+        promptKey: "workout_focus",
+        question: "What's your main workout focus?",
+        options: [
+          { value: "resistance", label: "Resistance/strength training" },
+          { value: "cardio", label: "Cardio/endurance" },
+          { value: "flexibility", label: "Flexibility/mobility" },
+          { value: "mixed", label: "A mix of everything" },
+        ],
+        skipLabel: "I'll answer later",
+      },
+      {
+        day: 2,
+        promptKey: "energy_levels",
+        question: "How's your energy in the mornings usually?",
+        options: [
+          { value: "low", label: "Low - hard to get going" },
+          { value: "moderate", label: "Moderate - takes a while to warm up" },
+          { value: "high", label: "High - I'm a morning person" },
+          { value: "varies", label: "Varies day to day" },
+        ],
+        skipLabel: "Skip for now",
+      },
+      {
+        day: 3,
+        promptKey: "dietary_restrictions",
+        question: "Any dietary restrictions we should know about?",
+        options: [
+          { value: "none", label: "No restrictions" },
+          { value: "vegetarian", label: "Vegetarian" },
+          { value: "vegan", label: "Vegan" },
+          { value: "gluten_free", label: "Gluten-free" },
+          { value: "dairy_free", label: "Dairy-free" },
+          { value: "other", label: "Other (will specify)" },
+        ],
+        skipLabel: "I'll add this later",
+      },
+      {
+        day: 4,
+        promptKey: "health_conditions",
+        question: "Any health conditions that affect your fitness?",
+        options: [
+          { value: "none", label: "None that affect fitness" },
+          { value: "joint_issues", label: "Joint issues (knees, hips, etc.)" },
+          { value: "back_issues", label: "Back problems" },
+          { value: "heart_condition", label: "Heart condition" },
+          { value: "diabetes", label: "Diabetes" },
+          { value: "other", label: "Other (will specify)" },
+        ],
+        skipLabel: "Prefer not to say",
+      },
+      {
+        day: 5,
+        promptKey: "body_measurements",
+        question: "Want to track body measurements for progress?",
+        options: [
+          { value: "yes_full", label: "Yes, all measurements" },
+          { value: "yes_basic", label: "Just waist and hips" },
+          { value: "weight_only", label: "Weight only is fine" },
+          { value: "no", label: "Not right now" },
+        ],
+        skipLabel: "Decide later",
+      },
+      {
+        day: 6,
+        promptKey: "digestion_quality",
+        question: "How's your digestion generally?",
+        options: [
+          { value: "great", label: "Great - no issues" },
+          { value: "good", label: "Good - occasional issues" },
+          { value: "fair", label: "Fair - frequent discomfort" },
+          { value: "poor", label: "Poor - regular problems" },
+        ],
+        skipLabel: "Skip this one",
+      },
+    ];
+
+    // Find the next unanswered prompt that's available based on day
+    for (const prompt of allPrompts) {
+      if (daysSinceSignup >= prompt.day && !answeredKeys.includes(prompt.promptKey)) {
+        return {
+          promptKey: prompt.promptKey,
+          question: prompt.question,
+          options: prompt.options,
+          skipLabel: prompt.skipLabel,
+        };
+      }
+    }
+
+    return null;
   }
 }
 
