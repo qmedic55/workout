@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Link } from "wouter";
 import {
@@ -120,6 +120,9 @@ export default function Profile() {
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <Avatar className="h-20 w-20 border-2 border-primary">
+            {profile.profileImageUrl && (
+              <AvatarImage src={profile.profileImageUrl} alt={fullName} />
+            )}
             <AvatarFallback className="text-2xl font-semibold bg-primary/10 text-primary">
               {initials}
             </AvatarFallback>

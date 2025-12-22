@@ -12,9 +12,10 @@ import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
-import { User, Target, MessageSquare, Moon, Sun, Save, Download, FileJson, FileSpreadsheet } from "lucide-react";
+import { User, Target, MessageSquare, Moon, Sun, Save, Download, FileJson, FileSpreadsheet, LogOut } from "lucide-react";
 import { ProfileChangesHistory } from "@/components/profile-changes-history";
 import { PublicProfileSettings } from "@/components/public-profile-settings";
+import { ProfilePictureUpload } from "@/components/profile-picture-upload";
 import type { UserProfile } from "@shared/schema";
 
 const settingsSchema = z.object({
@@ -110,7 +111,13 @@ export default function Settings() {
         <p className="text-muted-foreground">Manage your profile and preferences</p>
       </div>
 
-      <Form {...form}>
+      <ProfilePictureUpload
+          currentImageUrl={profile?.profileImageUrl}
+          firstName={profile?.firstName}
+          lastName={profile?.lastName}
+        />
+
+        <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <Card>
             <CardHeader>
@@ -401,6 +408,29 @@ export default function Settings() {
           <PublicProfileSettings />
 
           <ProfileChangesHistory limit={10} />
+
+          <Card className="border-destructive/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <LogOut className="h-5 w-5" />
+                Sign Out
+              </CardTitle>
+              <CardDescription>Sign out of your VitalPath account</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                You'll need to sign in again to access your data.
+              </p>
+              <Button
+                variant="destructive"
+                onClick={() => window.location.href = "/api/logout"}
+                data-testid="button-logout"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Sign Out
+              </Button>
+            </CardContent>
+          </Card>
 
           <div className="flex justify-end">
             <Button type="submit" disabled={updateMutation.isPending} data-testid="button-save-settings">

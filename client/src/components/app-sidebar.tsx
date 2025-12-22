@@ -12,8 +12,18 @@ import {
   ClipboardList,
   Blocks,
   Target,
+  LogOut,
+  User,
+  ChevronUp,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { UserProfile } from "@shared/schema";
 import {
   Sidebar,
@@ -197,23 +207,51 @@ export function AppSidebar() {
       <SidebarFooter className="p-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={location === "/profile"}
-              className="h-auto py-2"
-            >
-              <Link href="/profile" data-testid="link-profile">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col items-start">
-                  <span className="text-sm font-medium">{displayName}</span>
-                  <span className="text-xs text-muted-foreground">View Profile</span>
-                </div>
-              </Link>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  className="h-auto py-2 w-full"
+                  data-testid="profile-dropdown-trigger"
+                >
+                  <Avatar className="h-8 w-8">
+                    {profile?.profileImageUrl && (
+                      <AvatarImage src={profile.profileImageUrl} alt={displayName} />
+                    )}
+                    <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col items-start flex-1">
+                    <span className="text-sm font-medium">{displayName}</span>
+                    <span className="text-xs text-muted-foreground">View Profile</span>
+                  </div>
+                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-56">
+                <DropdownMenuItem asChild>
+                  <Link href="/profile" className="cursor-pointer">
+                    <User className="mr-2 h-4 w-4" />
+                    View Profile
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/settings" className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive cursor-pointer"
+                  onClick={() => window.location.href = "/api/logout"}
+                  data-testid="logout-dropdown-item"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

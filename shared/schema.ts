@@ -13,10 +13,11 @@ import { users } from "./models/auth";
 export const userProfiles = pgTable("user_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  
+
   // Basic info
   firstName: text("first_name"),
   lastName: text("last_name"),
+  profileImageUrl: text("profile_image_url"),
   age: integer("age"),
   sex: text("sex"), // male, female
   heightCm: real("height_cm"),
