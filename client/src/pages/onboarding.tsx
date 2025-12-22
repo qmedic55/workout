@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { z } from "zod";
+
+const ONBOARDING_STEP_KEY = "vitalpath_onboarding_step";
+const ONBOARDING_FORM_KEY = "vitalpath_onboarding_form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,35 +94,93 @@ const steps = [
   { title: "Preferences", description: "Customize your experience" },
 ];
 
+// Helper to get saved step from localStorage
+function getSavedStep(): number {
+  try {
+    const saved = localStorage.getItem(ONBOARDING_STEP_KEY);
+    if (saved) {
+      const step = parseInt(saved, 10);
+      if (!isNaN(step) && step >= 0 && step < 7) {
+        return step;
+      }
+    }
+  } catch {
+    // localStorage not available or error
+  }
+  return 0;
+}
+
+// Helper to get saved form data from localStorage
+function getSavedFormData(): Partial<OnboardingFormData> | null {
+  try {
+    const saved = localStorage.getItem(ONBOARDING_FORM_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {
+    // localStorage not available or error
+  }
+  return null;
+}
+
 export default function Onboarding() {
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(getSavedStep);
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
+  const defaultFormValues = {
+    firstName: "",
+    lastName: "",
+    age: 45,
+    sex: "male" as const,
+    heightCm: 170,
+    currentWeightKg: 80,
+    hasBeenDietingRecently: false,
+    doesResistanceTraining: false,
+    activityLevel: "sedentary" as const,
+    averageSleepHours: 7,
+    sleepQuality: 5,
+    stressLevel: 5,
+    energyLevelMorning: 5,
+    energyLevelAfternoon: 5,
+    moodGeneral: 5,
+    usesWearable: false,
+    coachingTone: "empathetic" as const,
+    enableNotifications: true,
+    hasHealthConditions: false,
+  };
+
+  // Merge saved form data with defaults
+  const savedFormData = getSavedFormData();
+  const initialFormValues = savedFormData
+    ? { ...defaultFormValues, ...savedFormData }
+    : defaultFormValues;
+
   const form = useForm<OnboardingFormData>({
     resolver: zodResolver(onboardingSchema),
-    defaultValues: {
-      firstName: "",
-      lastName: "",
-      age: 45,
-      sex: "male",
-      heightCm: 170,
-      currentWeightKg: 80,
-      hasBeenDietingRecently: false,
-      doesResistanceTraining: false,
-      activityLevel: "sedentary",
-      averageSleepHours: 7,
-      sleepQuality: 5,
-      stressLevel: 5,
-      energyLevelMorning: 5,
-      energyLevelAfternoon: 5,
-      moodGeneral: 5,
-      usesWearable: false,
-      coachingTone: "empathetic",
-      enableNotifications: true,
-      hasHealthConditions: false,
-    },
+    defaultValues: initialFormValues,
   });
+
+  // Persist step to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(ONBOARDING_STEP_KEY, currentStep.toString());
+    } catch {
+      // localStorage not available
+    }
+  }, [currentStep]);
+
+  // Persist form data to localStorage on changes (debounced via subscription)
+  useEffect(() => {
+    const subscription = form.watch((data) => {
+      try {
+        localStorage.setItem(ONBOARDING_FORM_KEY, JSON.stringify(data));
+      } catch {
+        // localStorage not available
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
   const submitMutation = useMutation({
     mutationFn: async (data: OnboardingFormData) => {
@@ -127,6 +188,13 @@ export default function Onboarding() {
       return response.json();
     },
     onSuccess: () => {
+      // Clear saved onboarding progress
+      try {
+        localStorage.removeItem(ONBOARDING_STEP_KEY);
+        localStorage.removeItem(ONBOARDING_FORM_KEY);
+      } catch {
+        // localStorage not available
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({
         title: "Assessment Complete!",
