@@ -209,8 +209,8 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  className="h-auto py-2 w-full"
+                <button
+                  className="flex w-full items-center gap-2 rounded-md p-2 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                   data-testid="profile-dropdown-trigger"
                 >
                   <Avatar className="h-8 w-8">
@@ -226,7 +226,7 @@ export function AppSidebar() {
                     <span className="text-xs text-muted-foreground">View Profile</span>
                   </div>
                   <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                </SidebarMenuButton>
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-56">
                 <DropdownMenuItem asChild>
