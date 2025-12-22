@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { format } from "date-fns";
+import { format, subDays, addDays, isToday } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,9 +20,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode } from "lucide-react";
+import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode, CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { FoodSearch } from "@/components/food-search";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import type { FoodEntry, UserProfile, DailyLog, MealTemplate } from "@shared/schema";
@@ -306,8 +308,10 @@ export default function Nutrition() {
   const [selectedMeal, setSelectedMeal] = useState<"breakfast" | "lunch" | "dinner" | "snack">("breakfast");
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
   const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const { toast } = useToast();
-  const today = format(new Date(), "yyyy-MM-dd");
+  const dateStr = format(selectedDate, "yyyy-MM-dd");
+  const viewingToday = isToday(selectedDate);
 
   const { data: profile } = useQuery<UserProfile>({
     queryKey: ["/api/profile"],
@@ -320,7 +324,7 @@ export default function Nutrition() {
   });
 
   const { data: foodEntries = [], isLoading } = useQuery<FoodEntry[]>({
-    queryKey: ["/api/food-entries", today],
+    queryKey: ["/api/food-entries", dateStr],
   });
 
   // Meal templates query and mutations
@@ -370,13 +374,14 @@ export default function Nutrition() {
     mutationFn: async (data: FoodEntryFormData) => {
       const response = await apiRequest("POST", "/api/food-entries", {
         ...data,
-        logDate: today,
+        logDate: dateStr,
       });
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-logs", dateStr] });
       form.reset({ mealType: selectedMeal, foodName: "", servingQuantity: 1 });
       toast({ title: "Food added", description: "Your food entry has been logged." });
     },
@@ -451,9 +456,54 @@ export default function Nutrition() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Nutrition Tracker</h1>
-        <p className="text-muted-foreground">Log your meals and track your macros</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Nutrition Tracker</h1>
+          <p className="text-muted-foreground">Log your meals and track your macros</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSelectedDate(subDays(selectedDate, 1))}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="min-w-[180px]">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {viewingToday ? "Today" : format(selectedDate, "MMM d, yyyy")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                disabled={(date) => date > new Date()}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSelectedDate(addDays(selectedDate, 1))}
+            disabled={viewingToday}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+
+          {!viewingToday && (
+            <Button variant="secondary" size="sm" onClick={() => setSelectedDate(new Date())}>
+              Today
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -461,10 +511,10 @@ export default function Nutrition() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Target className="h-5 w-5" />
-              Today's Summary
+              {viewingToday ? "Today's Summary" : "Daily Summary"}
             </CardTitle>
             <CardDescription>
-              {format(new Date(), "EEEE, MMMM d, yyyy")}
+              {format(selectedDate, "EEEE, MMMM d, yyyy")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

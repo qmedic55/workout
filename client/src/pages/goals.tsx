@@ -740,7 +740,7 @@ export default function Goals() {
                     startValue: celebrationGoal.startValue ?? undefined,
                     targetValue: celebrationGoal.targetValue ?? undefined,
                     targetUnit: celebrationGoal.targetUnit ?? undefined,
-                    startDate: celebrationGoal.startDate,
+                    startDate: celebrationGoal.startDate ?? undefined,
                     completedAt: new Date().toISOString(),
                   },
                   publicProfile?.username || undefined

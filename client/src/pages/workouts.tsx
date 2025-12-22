@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { format, subDays, addDays, isToday } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3, History, CalendarIcon, ChevronLeft } from "lucide-react";
 import { WorkoutAnalytics } from "@/components/workout-analytics";
 import { RestDayCard } from "@/components/rest-day-card";
-import type { WorkoutTemplate } from "@shared/schema";
+import type { WorkoutTemplate, ExerciseLog } from "@shared/schema";
 
 const defaultWorkouts: WorkoutTemplate[] = [
   {
@@ -268,6 +271,158 @@ function WorkoutsSkeleton() {
   );
 }
 
+function WorkoutHistory() {
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const dateStr = format(selectedDate, "yyyy-MM-dd");
+  const viewingToday = isToday(selectedDate);
+
+  const { data: exerciseLogs = [], isLoading } = useQuery<ExerciseLog[]>({
+    queryKey: ["/api/exercise-logs", dateStr],
+  });
+
+  // Group exercises by workout template or session
+  const groupedByWorkout = exerciseLogs.reduce((acc, log) => {
+    const key = log.workoutTemplateId || "standalone";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(log);
+    return acc;
+  }, {} as Record<string, ExerciseLog[]>);
+
+  return (
+    <div className="space-y-4">
+      {/* Date Navigation */}
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="font-semibold">Workout History</h3>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSelectedDate(subDays(selectedDate, 1))}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="min-w-[160px]">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {viewingToday ? "Today" : format(selectedDate, "MMM d, yyyy")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                disabled={(date) => date > new Date()}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSelectedDate(addDays(selectedDate, 1))}
+            disabled={viewingToday}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+
+          {!viewingToday && (
+            <Button variant="secondary" size="sm" onClick={() => setSelectedDate(new Date())}>
+              Today
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+        </div>
+      ) : exerciseLogs.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6 text-center text-muted-foreground">
+            <Dumbbell className="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <p>No workouts logged on {format(selectedDate, "MMMM d, yyyy")}</p>
+            <p className="text-sm mt-1">Use the arrow buttons to navigate to different days</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(groupedByWorkout).map(([workoutId, logs]) => {
+            const sortedLogs = [...logs].sort((a, b) => a.exerciseOrder - b.exerciseOrder);
+            const totalVolume = logs.reduce((sum, log) => {
+              const setDetails = log.setDetails as { reps: number; weightKg?: number }[] | null;
+              if (!setDetails) return sum;
+              return sum + setDetails.reduce((setSum, set) => {
+                return setSum + (set.reps * (set.weightKg || 0));
+              }, 0);
+            }, 0);
+
+            return (
+              <Card key={workoutId}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">
+                      {workoutId === "standalone" ? "Individual Exercises" : `Workout Session`}
+                    </CardTitle>
+                    {totalVolume > 0 && (
+                      <Badge variant="secondary">
+                        {totalVolume.toLocaleString()} kg total volume
+                      </Badge>
+                    )}
+                  </div>
+                  <CardDescription>
+                    {logs.length} exercise{logs.length !== 1 ? "s" : ""} completed
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {sortedLogs.map((log) => {
+                    const setDetails = log.setDetails as { reps: number; weightKg?: number; rir?: number }[] | null;
+
+                    return (
+                      <div key={log.id} className="p-3 rounded-lg bg-muted/50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium">{log.exerciseName}</p>
+                            {log.prescribedSets && log.prescribedReps && (
+                              <p className="text-xs text-muted-foreground">
+                                Target: {log.prescribedSets} × {log.prescribedReps}
+                                {log.prescribedRir !== null && ` @ RIR ${log.prescribedRir}`}
+                              </p>
+                            )}
+                          </div>
+                          <Badge variant="outline">
+                            {log.completedSets || setDetails?.length || 0} sets
+                          </Badge>
+                        </div>
+
+                        {setDetails && setDetails.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {setDetails.map((set, i) => (
+                              <Badge key={i} variant="secondary" className="text-xs">
+                                {set.reps} reps
+                                {set.weightKg ? ` @ ${set.weightKg}kg` : ""}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Workouts() {
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutTemplate | null>(null);
 
@@ -318,6 +473,10 @@ export default function Workouts() {
               <Zap className="h-4 w-4" />
               Recovery
             </TabsTrigger>
+            <TabsTrigger value="history" className="gap-1" data-testid="tab-history">
+              <History className="h-4 w-4" />
+              History
+            </TabsTrigger>
             <TabsTrigger value="analytics" className="gap-1" data-testid="tab-analytics">
               <BarChart3 className="h-4 w-4" />
               Analytics
@@ -365,6 +524,10 @@ export default function Workouts() {
                 />
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="history">
+            <WorkoutHistory />
           </TabsContent>
 
           <TabsContent value="analytics">
