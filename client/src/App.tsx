@@ -170,17 +170,18 @@ function LandingPage() {
                 </Button>
               )}
 
-              {/* Fallback if no providers configured or still loading */}
+              {/* Fallback loading state */}
               {providersLoading && (
                 <div className="w-full max-w-xs flex justify-center py-4">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               )}
 
+              {/* Replit Auth fallback - always show if no other providers available */}
               {!providersLoading && !hasGoogle && !hasFacebook && !hasTwitter && !isAppleSignInAvailable && (
-                <p className="text-muted-foreground text-sm">
-                  Sign in options are being configured. Please check back soon.
-                </p>
+                <Button size="lg" asChild className="w-full max-w-xs" data-testid="button-get-started">
+                  <a href="/api/login">Get Started Free</a>
+                </Button>
               )}
             </div>
           </div>

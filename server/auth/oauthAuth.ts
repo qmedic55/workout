@@ -2,12 +2,26 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { Strategy as FacebookStrategy } from "passport-facebook";
 import { Strategy as TwitterStrategy } from "passport-twitter";
+import * as client from "openid-client";
+import { Strategy as OidcStrategy, type VerifyFunction } from "openid-client/passport";
 import session from "express-session";
 import type { Express, RequestHandler, Request, Response } from "express";
 import connectPg from "connect-pg-simple";
+import memoize from "memoizee";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { storage } from "../storage";
 import * as jose from "jose";
+
+// Replit OIDC configuration
+const getOidcConfig = memoize(
+  async () => {
+    return await client.discovery(
+      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
+      process.env.REPL_ID!
+    );
+  },
+  { maxAge: 3600 * 1000 }
+);
 
 // OAuth provider configuration types
 interface OAuthConfig {
@@ -328,6 +342,84 @@ export async function setupOAuth(app: Express) {
       })
     );
   }
+
+  // Replit Auth (OIDC) - used as fallback when no OAuth providers configured
+  // Keep track of registered strategies per domain
+  const registeredStrategies = new Set<string>();
+
+  const ensureReplitStrategy = async (domain: string) => {
+    const strategyName = `replitauth:${domain}`;
+    if (!registeredStrategies.has(strategyName)) {
+      try {
+        const oidcConfig = await getOidcConfig();
+        const verify: VerifyFunction = async (tokens, verified) => {
+          try {
+            const claims = tokens.claims();
+            const userId = claims.sub as string;
+
+            // Upsert user
+            await authStorage.upsertUser({
+              id: userId,
+              email: claims.email as string | undefined,
+              firstName: claims.first_name as string | undefined,
+              lastName: claims.last_name as string | undefined,
+              profileImageUrl: claims.profile_image_url as string | undefined,
+            });
+
+            // Ensure profile exists
+            await ensureUserProfile(userId, {
+              firstName: claims.first_name as string | undefined,
+              lastName: claims.last_name as string | undefined,
+            });
+
+            const sessionUser: SessionUser = {
+              id: userId,
+              provider: "replit",
+              email: claims.email as string | undefined,
+              firstName: claims.first_name as string | undefined,
+              lastName: claims.last_name as string | undefined,
+              profileImageUrl: claims.profile_image_url as string | undefined,
+            };
+
+            verified(null, sessionUser);
+          } catch (error) {
+            verified(error as Error);
+          }
+        };
+
+        const strategy = new OidcStrategy(
+          {
+            name: strategyName,
+            config: oidcConfig,
+            scope: "openid email profile offline_access",
+            callbackURL: `https://${domain}/api/callback`,
+          },
+          verify
+        );
+        passport.use(strategy);
+        registeredStrategies.add(strategyName);
+      } catch (error) {
+        console.error("Failed to setup Replit auth strategy:", error);
+      }
+    }
+  };
+
+  // Replit Auth routes
+  app.get("/api/login", async (req, res, next) => {
+    await ensureReplitStrategy(req.hostname);
+    passport.authenticate(`replitauth:${req.hostname}`, {
+      prompt: "login consent",
+      scope: ["openid", "email", "profile", "offline_access"],
+    })(req, res, next);
+  });
+
+  app.get("/api/callback", async (req, res, next) => {
+    await ensureReplitStrategy(req.hostname);
+    passport.authenticate(`replitauth:${req.hostname}`, {
+      successReturnToOrRedirect: "/",
+      failureRedirect: "/api/login",
+    })(req, res, next);
+  });
 
   // Apple Sign In (handled via POST from iOS native)
   app.post("/api/auth/apple", async (req: Request, res: Response) => {
