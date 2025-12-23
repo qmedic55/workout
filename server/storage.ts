@@ -63,6 +63,37 @@ import {
   type InsertProgressivePrompt,
 } from "@shared/schema";
 
+// Simple Levenshtein similarity for fuzzy food name matching
+function levenshteinSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b[i - 1] === a[j - 1]) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+
+  const maxLen = Math.max(a.length, b.length);
+  return 1 - matrix[b.length][a.length] / maxLen;
+}
+
 export interface IStorage {
   // User Profiles (User operations handled by auth module)
   getProfile(userId: string): Promise<UserProfile | undefined>;
@@ -152,6 +183,7 @@ export interface IStorage {
   updateMealTemplate(id: string, userId: string, updates: Partial<InsertMealTemplate>): Promise<MealTemplate | undefined>;
   deleteMealTemplate(id: string, userId: string): Promise<boolean>;
   incrementMealTemplateUsage(id: string, userId: string): Promise<void>;
+  findSimilarMealTemplate(userId: string, foodNames: string[], mealType?: string): Promise<MealTemplate | undefined>;
 
   // Goals
   getGoals(userId: string, status?: string): Promise<Goal[]>;
@@ -874,6 +906,44 @@ export class DatabaseStorage implements IStorage {
         })
         .where(eq(mealTemplates.id, id));
     }
+  }
+
+  // Find similar meal templates based on food items
+  async findSimilarMealTemplate(
+    userId: string,
+    foodNames: string[],
+    mealType?: string
+  ): Promise<MealTemplate | undefined> {
+    if (foodNames.length === 0) return undefined;
+
+    const templates = await this.getMealTemplates(userId);
+    const normalizedFoodNames = foodNames.map(n => n.toLowerCase().trim());
+
+    for (const template of templates) {
+      const items = template.items as Array<{ foodName: string }>;
+      if (!items || items.length === 0) continue;
+
+      const templateFoodNames = items.map(i => i.foodName.toLowerCase().trim());
+
+      // Check if at least 80% of items match
+      const matchCount = normalizedFoodNames.filter(name =>
+        templateFoodNames.some(tfn =>
+          tfn.includes(name) || name.includes(tfn) ||
+          levenshteinSimilarity(tfn, name) > 0.7
+        )
+      ).length;
+
+      const similarity = matchCount / Math.max(normalizedFoodNames.length, templateFoodNames.length);
+
+      if (similarity >= 0.7) {
+        // If meal type specified, prefer matching meal types
+        if (!mealType || template.mealType === mealType) {
+          return template;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   // Goals

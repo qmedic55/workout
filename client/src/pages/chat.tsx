@@ -161,6 +161,10 @@ export default function Chat() {
           queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
           queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
         }
+        // Invalidate meal templates if one was created
+        if (data.loggedData.mealTemplateCreated || data.loggedData.autoDetectedMealTemplate) {
+          queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
+        }
       }
     },
     onError: () => {

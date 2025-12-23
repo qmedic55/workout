@@ -181,6 +181,13 @@ export interface ParsedDailyLogUpdates {
   waterLiters?: number;
 }
 
+// Meal template intent detection
+export interface MealTemplateIntent {
+  shouldCreateTemplate: boolean; // true if user is describing a recurring meal
+  templateName?: string; // suggested name for the template
+  mealType?: "breakfast" | "lunch" | "dinner" | "snack";
+}
+
 // Comprehensive parse result
 export interface NaturalLanguageParseResult {
   foods: ParsedFood[];
@@ -189,6 +196,7 @@ export interface NaturalLanguageParseResult {
   isHealthNote: boolean; // true if note should also be saved as health note for AI context
   workoutType?: string; // e.g., "upper body", "leg day", "cardio"
   workoutCompleted?: boolean;
+  mealTemplateIntent?: MealTemplateIntent; // detected intent to create a meal template
 }
 
 /**
@@ -264,6 +272,13 @@ EXTRACT THE FOLLOWING WHEN PRESENT:
    - Lifestyle factors worth remembering (busy week, traveling, etc.)
    - General context that's useful but not directly trackable
 
+6. **mealTemplateIntent**: Detect if the user is describing a RECURRING or USUAL meal (not just logging what they ate):
+   - shouldCreateTemplate: true ONLY if they use words like "usually", "typically", "always", "every day", "my usual", "I normally", "for breakfast I always have", "my go-to", "save this as", "create a template"
+   - templateName: A short descriptive name for the template (e.g., "Morning Protein Shake", "Work Lunch", "Post-Workout Meal")
+   - mealType: The meal type for this template
+   - IMPORTANT: If they just say "I had eggs for breakfast", that's NOT a template - they're logging what they ate
+   - Template examples: "I usually have 3 eggs and toast for breakfast", "My typical lunch is a chicken salad", "Save my morning shake - protein powder, banana, and almond milk"
+
 EXAMPLES:
 
 Input: "I had eggs and toast for breakfast, then hit the gym and did bench press 4x8 at 185lbs and some tricep work"
@@ -310,6 +325,24 @@ Output: {
   "exercises": [],
   "dailyLogUpdates": {"sleepHours": 5, "sleepQuality": 3, "stressLevel": 7, "energyLevel": 4},
   "isHealthNote": true
+}
+
+Input: "I usually have 3 eggs, 2 slices of whole wheat toast with butter for breakfast"
+Output: {
+  "foods": [{"foodName": "Eggs", "mealType": "breakfast", "servingSize": "large", "servingQuantity": 3, "calories": 210, "proteinGrams": 18, "carbsGrams": 1, "fatGrams": 15, "fiberGrams": 0}, {"foodName": "Whole wheat toast", "mealType": "breakfast", "servingSize": "slice", "servingQuantity": 2, "calories": 160, "proteinGrams": 6, "carbsGrams": 26, "fatGrams": 2, "fiberGrams": 4}, {"foodName": "Butter", "mealType": "breakfast", "servingSize": "tbsp", "servingQuantity": 1, "calories": 100, "proteinGrams": 0, "carbsGrams": 0, "fatGrams": 11, "fiberGrams": 0}],
+  "exercises": [],
+  "dailyLogUpdates": {},
+  "isHealthNote": false,
+  "mealTemplateIntent": {"shouldCreateTemplate": true, "templateName": "Eggs & Toast Breakfast", "mealType": "breakfast"}
+}
+
+Input: "My go-to post workout shake is protein powder, banana, and almond milk"
+Output: {
+  "foods": [{"foodName": "Protein powder", "mealType": "snack", "servingSize": "scoop", "servingQuantity": 1, "calories": 120, "proteinGrams": 25, "carbsGrams": 3, "fatGrams": 1, "fiberGrams": 0}, {"foodName": "Banana", "mealType": "snack", "servingSize": "medium", "servingQuantity": 1, "calories": 105, "proteinGrams": 1, "carbsGrams": 27, "fatGrams": 0, "fiberGrams": 3}, {"foodName": "Almond milk", "mealType": "snack", "servingSize": "cup", "servingQuantity": 1, "calories": 30, "proteinGrams": 1, "carbsGrams": 1, "fatGrams": 2, "fiberGrams": 0}],
+  "exercises": [],
+  "dailyLogUpdates": {},
+  "isHealthNote": false,
+  "mealTemplateIntent": {"shouldCreateTemplate": true, "templateName": "Post-Workout Shake", "mealType": "snack"}
 }
 
 Respond ONLY with valid JSON. Use null for missing optional fields.`;
@@ -361,6 +394,11 @@ Respond ONLY with valid JSON. Use null for missing optional fields.`;
       isHealthNote: result.isHealthNote ?? false,
       workoutType: result.workoutType || undefined,
       workoutCompleted: result.workoutCompleted ?? false,
+      mealTemplateIntent: result.mealTemplateIntent?.shouldCreateTemplate ? {
+        shouldCreateTemplate: true,
+        templateName: result.mealTemplateIntent.templateName || undefined,
+        mealType: result.mealTemplateIntent.mealType || undefined,
+      } : undefined,
     };
   } catch (error) {
     console.error("Error parsing natural language input:", error);

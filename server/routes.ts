@@ -1153,6 +1153,151 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           console.error("Error creating health note from chat:", err);
         }
       }
+
+      // 5. Create meal template if user is describing a recurring meal
+      let createdMealTemplate: { id: string; name: string } | undefined;
+      if (nlpResult.mealTemplateIntent?.shouldCreateTemplate && nlpResult.foods.length > 0) {
+        try {
+          // Check if a similar template already exists
+          const foodNames = nlpResult.foods.map(f => f.foodName);
+          const existingTemplate = await storage.findSimilarMealTemplate(
+            userId,
+            foodNames,
+            nlpResult.mealTemplateIntent.mealType
+          );
+
+          if (!existingTemplate) {
+            // Calculate totals from foods
+            const totalCalories = nlpResult.foods.reduce((sum, f) => sum + f.calories, 0);
+            const totalProtein = nlpResult.foods.reduce((sum, f) => sum + f.proteinGrams, 0);
+            const totalCarbs = nlpResult.foods.reduce((sum, f) => sum + f.carbsGrams, 0);
+            const totalFat = nlpResult.foods.reduce((sum, f) => sum + f.fatGrams, 0);
+
+            // Create the template
+            const templateName = nlpResult.mealTemplateIntent.templateName ||
+              `My ${nlpResult.mealTemplateIntent.mealType || "meal"}`;
+
+            const template = await storage.createMealTemplate({
+              userId,
+              name: templateName,
+              mealType: nlpResult.mealTemplateIntent.mealType,
+              totalCalories,
+              totalProtein,
+              totalCarbs,
+              totalFat,
+              items: nlpResult.foods.map(f => ({
+                foodName: f.foodName,
+                servingSize: f.servingSize,
+                quantity: f.servingQuantity,
+                calories: f.calories,
+                protein: f.proteinGrams,
+                carbs: f.carbsGrams,
+                fat: f.fatGrams,
+              })),
+            });
+
+            createdMealTemplate = { id: template.id, name: template.name };
+            console.log(`[Chat] Created meal template "${template.name}" for user ${userId}`);
+          } else {
+            console.log(`[Chat] Similar template "${existingTemplate.name}" already exists, skipping creation`);
+          }
+        } catch (err) {
+          console.error("Error creating meal template from chat:", err);
+        }
+      }
+
+      // 6. Auto-detect repeated meals and suggest/create templates
+      // Only trigger if we just logged foods AND no template was explicitly created
+      let autoDetectedTemplate: { id: string; name: string; isNew: boolean } | undefined;
+      if (nlpResult.foods.length > 0 && !createdMealTemplate) {
+        try {
+          // Get recent food entries for this user to detect patterns
+          const recentFoodStart = format(subDays(new Date(), 7), "yyyy-MM-dd");
+          const recentFoods = await storage.getFoodEntriesRange(userId, recentFoodStart, today);
+
+          // Group foods by meal (same date + same meal type within 5 min window)
+          const mealGroups: Map<string, { foods: string[]; count: number; mealType: string }> = new Map();
+
+          // Group current logged foods
+          const currentFoodNames = nlpResult.foods.map(f => f.foodName.toLowerCase().trim()).sort();
+          const currentMealKey = currentFoodNames.join("|");
+          const currentMealType = nlpResult.foods[0]?.mealType || "snack";
+
+          // Find similar meals in recent history
+          for (const entry of recentFoods) {
+            // Skip today's entries (we just added them)
+            if (entry.logDate === today) continue;
+
+            const entryKey = `${entry.logDate}|${entry.mealType}`;
+            if (!mealGroups.has(entryKey)) {
+              mealGroups.set(entryKey, { foods: [], count: 0, mealType: entry.mealType || "snack" });
+            }
+            const group = mealGroups.get(entryKey)!;
+            group.foods.push(entry.foodName?.toLowerCase().trim() || "");
+          }
+
+          // Check if current meal matches any historical meals 3+ times
+          let matchCount = 0;
+          mealGroups.forEach((group, key) => {
+            const historicalFoods = group.foods.sort();
+
+            // Check similarity (at least 70% match)
+            const matchingFoods = currentFoodNames.filter((name: string) =>
+              historicalFoods.some((hf: string) => hf.includes(name) || name.includes(hf))
+            );
+            const similarity = matchingFoods.length / Math.max(currentFoodNames.length, historicalFoods.length);
+
+            if (similarity >= 0.7) {
+              matchCount++;
+            }
+          });
+
+          // If this meal appears 3+ times in history, auto-create a template
+          if (matchCount >= 2) { // 2 historical + 1 current = 3 total occurrences
+            // Check if template already exists
+            const existingTemplate = await storage.findSimilarMealTemplate(
+              userId,
+              nlpResult.foods.map(f => f.foodName),
+              currentMealType
+            );
+
+            if (!existingTemplate) {
+              // Calculate totals
+              const totalCalories = nlpResult.foods.reduce((sum, f) => sum + f.calories, 0);
+              const totalProtein = nlpResult.foods.reduce((sum, f) => sum + f.proteinGrams, 0);
+              const totalCarbs = nlpResult.foods.reduce((sum, f) => sum + f.carbsGrams, 0);
+              const totalFat = nlpResult.foods.reduce((sum, f) => sum + f.fatGrams, 0);
+
+              // Generate a template name
+              const templateName = `Frequent ${currentMealType.charAt(0).toUpperCase() + currentMealType.slice(1)}`;
+
+              const template = await storage.createMealTemplate({
+                userId,
+                name: templateName,
+                mealType: currentMealType,
+                totalCalories,
+                totalProtein,
+                totalCarbs,
+                totalFat,
+                items: nlpResult.foods.map(f => ({
+                  foodName: f.foodName,
+                  servingSize: f.servingSize,
+                  quantity: f.servingQuantity,
+                  calories: f.calories,
+                  protein: f.proteinGrams,
+                  carbs: f.carbsGrams,
+                  fat: f.fatGrams,
+                })),
+              });
+
+              autoDetectedTemplate = { id: template.id, name: template.name, isNew: true };
+              console.log(`[Chat] Auto-created meal template "${template.name}" for user ${userId} (detected ${matchCount + 1} occurrences)`);
+            }
+          }
+        } catch (err) {
+          console.error("Error in auto-detect meal template:", err);
+        }
+      }
       // ========== END PARSING ==========
 
       // Save user message
@@ -1267,6 +1412,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           dailyLogChanges: loggedData.dailyLogChanges,
           workoutCompleted: loggedData.workoutCompleted,
           workoutType: loggedData.workoutType,
+          mealTemplateCreated: createdMealTemplate,
+          autoDetectedMealTemplate: autoDetectedTemplate,
         },
       });
     } catch (error) {

@@ -109,6 +109,21 @@ export function QuickNote() {
             description: parts.join(" • "),
           });
         }
+
+        // Show toast for meal template creation
+        if (data.loggedData.mealTemplateCreated) {
+          queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
+          toast({
+            title: "Meal Template Created",
+            description: `Saved "${data.loggedData.mealTemplateCreated.name}" for quick logging`,
+          });
+        } else if (data.loggedData.autoDetectedMealTemplate) {
+          queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
+          toast({
+            title: "Frequent Meal Detected",
+            description: `Created "${data.loggedData.autoDetectedMealTemplate.name}" template - you log this often!`,
+          });
+        }
       }
     },
     onError: (error: Error) => {
