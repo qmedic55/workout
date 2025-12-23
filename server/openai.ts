@@ -18,6 +18,15 @@ export async function generateMentorResponse(
   try {
     const systemPrompt = buildMentorSystemPrompt(context);
 
+    // Log conversation history lengths for debugging long response issues
+    const historyStats = conversationHistory.slice(-10).map((msg) => ({
+      role: msg.role,
+      length: msg.content.length,
+      preview: msg.content.slice(0, 50) + (msg.content.length > 50 ? "..." : "")
+    }));
+    console.log("[AI Debug] User:", context.profile?.firstName, "Message:", userMessage.slice(0, 100));
+    console.log("[AI Debug] History:", JSON.stringify(historyStats));
+
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },
       ...conversationHistory.slice(-10).map((msg) => ({
@@ -34,7 +43,10 @@ export async function generateMentorResponse(
       temperature: 0.7,
     });
 
-    return response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
+    const responseText = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
+    console.log("[AI Debug] Response length:", responseText.length);
+
+    return responseText;
   } catch (error) {
     console.error("OpenAI API error:", error);
     throw new Error("Failed to generate AI response");
