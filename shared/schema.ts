@@ -6,8 +6,8 @@ import { z } from "zod";
 // Re-export auth models
 export * from "./models/auth";
 
-// Import users from auth for relations
-import { users } from "./models/auth";
+// Import users and oauthAccounts from auth for relations
+import { users, oauthAccounts } from "./models/auth";
 
 // User profile - detailed health and fitness profile
 export const userProfiles = pgTable("user_profiles", {
@@ -542,6 +542,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     fields: [users.id],
     references: [onboardingAssessments.userId],
   }),
+  oauthAccounts: many(oauthAccounts),
   dailyLogs: many(dailyLogs),
   foodEntries: many(foodEntries),
   exerciseLogs: many(exerciseLogs),
@@ -561,6 +562,13 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   shareEvents: many(shareEvents),
   userMilestones: many(userMilestones),
   progressivePrompts: many(progressivePrompts),
+}));
+
+export const oauthAccountsRelations = relations(oauthAccounts, ({ one }) => ({
+  user: one(users, {
+    fields: [oauthAccounts.userId],
+    references: [users.id],
+  }),
 }));
 
 export const mealTemplatesRelations = relations(mealTemplates, ({ one }) => ({
