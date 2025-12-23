@@ -24,9 +24,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode, CalendarIcon, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
+import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode, CalendarIcon, ChevronLeft, ChevronRight, GripVertical, Camera } from "lucide-react";
 import { FoodSearch } from "@/components/food-search";
 import { BarcodeScanner } from "@/components/barcode-scanner";
+import { PhotoFoodLogger } from "@/components/photo-food-logger";
+import { FoodFAB } from "@/components/food-fab";
 import type { FoodEntry, UserProfile, DailyLog, MealTemplate } from "@shared/schema";
 
 const foodEntrySchema = z.object({
@@ -327,6 +329,7 @@ export default function Nutrition() {
   const [selectedMeal, setSelectedMeal] = useState<"breakfast" | "lunch" | "dinner" | "snack">("breakfast");
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
   const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false);
+  const [photoLoggerOpen, setPhotoLoggerOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const { toast } = useToast();
   const dateStr = format(selectedDate, "yyyy-MM-dd");
@@ -671,15 +674,26 @@ export default function Nutrition() {
                       <Search className="h-4 w-4" />
                       Search Food Database
                     </FormLabel>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setBarcodeScannerOpen(true)}
-                    >
-                      <ScanBarcode className="h-4 w-4 mr-1" />
-                      Scan
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPhotoLoggerOpen(true)}
+                      >
+                        <Camera className="h-4 w-4 mr-1" />
+                        Photo AI
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBarcodeScannerOpen(true)}
+                      >
+                        <ScanBarcode className="h-4 w-4 mr-1" />
+                        Scan
+                      </Button>
+                    </div>
                   </div>
                   <FoodSearch onSelect={handleFoodSelect} />
                 </div>
@@ -939,6 +953,16 @@ export default function Nutrition() {
         onOpenChange={setBarcodeScannerOpen}
         onProductSelect={handleFoodSelect}
       />
+
+      {/* Photo Food Logger */}
+      <PhotoFoodLogger
+        open={photoLoggerOpen}
+        onOpenChange={setPhotoLoggerOpen}
+        date={dateStr}
+      />
+
+      {/* Floating Action Button for quick food logging */}
+      <FoodFAB date={dateStr} />
     </div>
   );
 }

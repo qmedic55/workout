@@ -421,3 +421,158 @@ export async function parseFoodFromText(text: string, timezone?: string): Promis
     isHealthNote: result.isHealthNote,
   };
 }
+
+// Photo food analysis result
+export interface PhotoFoodItem {
+  name: string;
+  servingSize: string;
+  calories: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatGrams: number;
+  confidence: number; // 0-1 confidence score
+}
+
+export interface PhotoAnalysisResult {
+  success: boolean;
+  items: PhotoFoodItem[];
+  totalNutrition: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  error?: string;
+}
+
+/**
+ * Analyze a food photo using GPT-4 Vision to identify foods and estimate nutrition.
+ * @param base64Image - Base64 encoded image data (without the data:image/... prefix)
+ * @param imageType - MIME type of the image (e.g., "image/jpeg", "image/png")
+ */
+export async function analyzePhotoFood(base64Image: string, imageType: string = "image/jpeg"): Promise<PhotoAnalysisResult> {
+  try {
+    const systemPrompt = `You are a nutrition analysis expert. Analyze this food photo and identify all visible food items.
+
+For each item, provide:
+- name: Common food name
+- servingSize: Estimated serving (e.g., "6 oz", "1 cup", "2 slices")
+- calories: Estimated calories for that serving
+- proteinGrams: Grams of protein
+- carbsGrams: Grams of carbohydrates
+- fatGrams: Grams of fat
+- confidence: Your confidence level 0-1 (1 = very confident, 0.5 = moderate guess)
+
+GUIDELINES:
+- Be conservative with portions - users can adjust if needed
+- If unsure between similar items, pick the more common option
+- For mixed dishes, try to identify individual components when possible
+- If you can't identify a food item clearly, give it a lower confidence score
+- Estimate based on typical restaurant/home portions
+
+RESPOND ONLY WITH JSON in this exact format:
+{
+  "items": [
+    {
+      "name": "Grilled Chicken Breast",
+      "servingSize": "6 oz",
+      "calories": 190,
+      "proteinGrams": 35,
+      "carbsGrams": 0,
+      "fatGrams": 4,
+      "confidence": 0.9
+    }
+  ]
+}
+
+If you cannot identify any food in the image, respond with:
+{"items": [], "error": "No food items detected in the image"}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${imageType};base64,${base64Image}`,
+                detail: "high",
+              },
+            },
+            {
+              type: "text",
+              text: "Please analyze this food image and identify all food items with their nutritional estimates.",
+            },
+          ],
+        },
+      ],
+      max_tokens: 1000,
+      temperature: 0.3,
+    });
+
+    const content = response.choices[0]?.message?.content || "{}";
+
+    // Try to parse the JSON response
+    let result;
+    try {
+      // Handle case where response might have markdown code blocks
+      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+      const jsonStr = jsonMatch ? jsonMatch[1] : content;
+      result = JSON.parse(jsonStr.trim());
+    } catch (parseError) {
+      console.error("Failed to parse photo analysis response:", content);
+      return {
+        success: false,
+        items: [],
+        totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        error: "Failed to parse AI response",
+      };
+    }
+
+    if (result.error) {
+      return {
+        success: false,
+        items: [],
+        totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        error: result.error,
+      };
+    }
+
+    const items: PhotoFoodItem[] = (result.items || []).map((item: any) => ({
+      name: item.name || "Unknown food",
+      servingSize: item.servingSize || "1 serving",
+      calories: Math.round(item.calories || 0),
+      proteinGrams: Math.round(item.proteinGrams || 0),
+      carbsGrams: Math.round(item.carbsGrams || 0),
+      fatGrams: Math.round(item.fatGrams || 0),
+      confidence: Math.min(1, Math.max(0, item.confidence || 0.5)),
+    }));
+
+    const totalNutrition = items.reduce(
+      (acc, item) => ({
+        calories: acc.calories + item.calories,
+        protein: acc.protein + item.proteinGrams,
+        carbs: acc.carbs + item.carbsGrams,
+        fat: acc.fat + item.fatGrams,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+
+    return {
+      success: true,
+      items,
+      totalNutrition,
+    };
+  } catch (error) {
+    console.error("Error analyzing food photo:", error);
+    return {
+      success: false,
+      items: [],
+      totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      error: error instanceof Error ? error.message : "Failed to analyze photo",
+    };
+  }
+}

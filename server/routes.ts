@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput, openai } from "./openai";
+import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput, openai, analyzePhotoFood } from "./openai";
 import { generateInsights, generateDayOneInsight, generateFirstWeekReport } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { searchUSDAFoods } from "./foodApi";
@@ -897,6 +897,54 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     } catch (error) {
       console.error("Error updating food entry:", error);
       res.status(500).json({ error: "Failed to update food entry" });
+    }
+  });
+
+  // Analyze food photo with AI
+  app.post("/api/food/photo", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+
+      // Rate limiting for AI endpoints
+      const rateCheck = checkRateLimit(userId);
+      if (!rateCheck.allowed) {
+        res.status(429).json({
+          error: "Too many requests",
+          retryAfter: rateCheck.retryAfter
+        });
+        return;
+      }
+
+      const { image, imageType } = req.body;
+
+      if (!image) {
+        res.status(400).json({ error: "Image is required" });
+        return;
+      }
+
+      // Validate image is base64
+      if (typeof image !== "string") {
+        res.status(400).json({ error: "Image must be a base64 string" });
+        return;
+      }
+
+      // Limit image size (roughly 10MB base64)
+      if (image.length > 10 * 1024 * 1024 * 1.37) {
+        res.status(400).json({ error: "Image too large. Maximum size is 10MB" });
+        return;
+      }
+
+      const result = await analyzePhotoFood(image, imageType || "image/jpeg");
+
+      if (!result.success) {
+        res.status(400).json({ error: result.error || "Failed to analyze image" });
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error analyzing food photo:", error);
+      res.status(500).json({ error: "Failed to analyze food photo" });
     }
   });
 

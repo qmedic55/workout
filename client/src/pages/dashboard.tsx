@@ -9,6 +9,7 @@ import { QuickNote } from "@/components/quick-note";
 import { MilestoneCelebration, MilestoneProgress } from "@/components/milestone-celebration";
 import { WelcomeFlow } from "@/components/welcome-flow";
 import { WelcomeBonusModal } from "@/components/welcome-bonus-modal";
+import { FoodFAB } from "@/components/food-fab";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -576,6 +577,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Floating Action Button for quick food logging */}
+      <FoodFAB />
     </div>
   );
 }
