@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,12 +80,23 @@ function RestTimer({
 }) {
   const [remaining, setRemaining] = useState(seconds);
   const [isPaused, setIsPaused] = useState(false);
+  const onCompleteRef = useRef(onComplete);
 
+  // Keep onComplete ref updated
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  // Handle completion
+  useEffect(() => {
+    if (remaining <= 0) {
+      onCompleteRef.current();
+    }
+  }, [remaining]);
+
+  // Timer tick
   useEffect(() => {
     if (isPaused || remaining <= 0) {
-      if (remaining <= 0) {
-        onComplete();
-      }
       return;
     }
 
@@ -94,7 +105,7 @@ function RestTimer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [remaining, isPaused, onComplete]);
+  }, [isPaused, remaining <= 0]); // Only restart when paused state or completion changes
 
   const minutes = Math.floor(remaining / 60);
   const secs = remaining % 60;
