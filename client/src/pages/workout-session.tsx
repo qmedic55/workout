@@ -486,16 +486,20 @@ export default function WorkoutSession() {
   // Save workout log mutation
   const saveWorkoutMutation = useMutation({
     mutationFn: async (data: {
-      exercises: { exerciseName: string; sets: SetLog[]; skipped: boolean }[];
+      exercises: { exerciseName: string; sets: SetLog[]; skipped: boolean; exerciseOrder: number }[];
       durationSeconds: number;
       workoutTitle: string;
     }) => {
+      const today = new Date().toISOString().split("T")[0];
+
       // Log each exercise
       for (const exercise of data.exercises) {
         if (exercise.skipped || exercise.sets.length === 0) continue;
 
         await apiRequest("POST", "/api/exercise-logs", {
           exerciseName: exercise.exerciseName,
+          logDate: today,
+          exerciseOrder: exercise.exerciseOrder,
           completedSets: exercise.sets.length,
           setDetails: exercise.sets,
           notes: `Completed via AI-guided session: ${data.workoutTitle}`,
@@ -503,7 +507,6 @@ export default function WorkoutSession() {
       }
 
       // Update daily log to mark workout as done
-      const today = new Date().toISOString().split("T")[0];
       await apiRequest("POST", `/api/daily-logs/${today}`, {
         workedOut: true,
         workoutType: "strength",
@@ -591,10 +594,11 @@ export default function WorkoutSession() {
 
     // Save the workout
     saveWorkoutMutation.mutate({
-      exercises: progress.map((p) => ({
+      exercises: progress.map((p, index) => ({
         exerciseName: p.exerciseName,
         sets: p.completedSets,
         skipped: p.skipped,
+        exerciseOrder: index,
       })),
       durationSeconds: elapsedTime,
       workoutTitle: workout.title,
