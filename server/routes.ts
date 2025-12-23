@@ -9,6 +9,7 @@ import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from 
 import { parseAIResponseForActions, prepareProfileUpdates, formatChangeNotification } from "./aiActionParser";
 import { sendProactiveNotifications, getDailyProgressSummary, generateAfternoonReminders } from "./proactiveNotifications";
 import { generateDailyGuidance, generateDailyGuidanceWithAssistant } from "./dailyGuidance";
+import { AI_MODEL_PRIMARY, AI_MODEL_LIGHT } from "./aiModels";
 import {
   getPointsSummary,
   awardFoodLogPoints,
@@ -1464,7 +1465,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       const dailyProgressSummary = await getDailyProgressSummary(userId);
 
       // Generate AI response with full context
-      const aiResponse = await generateMentorResponse(
+      const aiResult = await generateMentorResponse(
         content,
         messageHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
         {
@@ -1478,12 +1479,13 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         }
       );
 
-      // Save AI response
+      // Save AI response with model information
       const assistantMessage = await storage.createChatMessage({
         userId: getUserId(req),
         role: "assistant",
-        content: aiResponse,
+        content: aiResult.response,
         contextType: "coaching",
+        aiModel: aiResult.model,
       });
 
       // Parse AI response for actionable changes and auto-apply them
@@ -1491,7 +1493,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       if (profile) {
         try {
           console.log("[AI Parser] Parsing AI response for actions...");
-          const parsedActions = await parseAIResponseForActions(aiResponse, profile);
+          const parsedActions = await parseAIResponseForActions(aiResult.response, profile);
           console.log("[AI Parser] Parse result:", JSON.stringify(parsedActions, null, 2));
 
           if (parsedActions.hasChanges && parsedActions.changes.length > 0) {
@@ -2207,7 +2209,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Generate AI analysis with a specific sync prompt
       const syncPrompt = `Please review my current data and let me know if any adjustments are needed to my targets or plan. Look at my recent logs, food entries, and exercise data to see if anything should be updated.`;
 
-      const aiResponse = await generateMentorResponse(
+      const aiResult = await generateMentorResponse(
         syncPrompt,
         [], // No conversation history for sync
         {
@@ -2220,18 +2222,19 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         }
       );
 
-      // Save the sync message
+      // Save the sync message with model information
       const assistantMessage = await storage.createChatMessage({
         userId,
         role: "assistant",
-        content: aiResponse,
+        content: aiResult.response,
         contextType: "sync",
+        aiModel: aiResult.model,
       });
 
       // Parse and apply any changes
       let appliedChanges: string[] = [];
       console.log("[AI Sync] Parsing sync response for actions...");
-      const parsedActions = await parseAIResponseForActions(aiResponse, profile);
+      const parsedActions = await parseAIResponseForActions(aiResult.response, profile);
       console.log("[AI Sync] Parse result:", JSON.stringify(parsedActions, null, 2));
 
       if (parsedActions.hasChanges && parsedActions.changes.length > 0) {
@@ -2294,7 +2297,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       res.json({
         success: true,
-        message: aiResponse,
+        message: aiResult.response,
+        model: aiResult.model,
         appliedChanges: appliedChanges.length > 0 ? appliedChanges : undefined,
         summary: parsedActions.messageSummary,
         phaseEvaluation: phaseEvaluation ? {
@@ -3135,7 +3139,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // Generate AI weekly summary (using shared singleton client)
       const aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: AI_MODEL_LIGHT,
         messages: [
           {
             role: "system",
@@ -3223,7 +3227,7 @@ Return a JSON object with:
       };
 
       const aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: AI_MODEL_PRIMARY,
         messages: [
           {
             role: "system",
@@ -3460,7 +3464,7 @@ Return a JSON object with this exact structure:
         : 5;
 
       const aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: AI_MODEL_LIGHT,
         messages: [
           {
             role: "system",
@@ -3573,7 +3577,7 @@ Should I do any additional activity today, or should I focus on recovery?`
       }
 
       const aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: AI_MODEL_LIGHT,
         messages: [
           {
             role: "system",

@@ -159,18 +159,23 @@ export const foodEntries = pgTable("food_entries", {
   userId: varchar("user_id").notNull().references(() => users.id),
   dailyLogId: varchar("daily_log_id").references(() => dailyLogs.id),
   logDate: date("log_date").notNull(),
-  
+
   mealType: text("meal_type").notNull(), // breakfast, lunch, dinner, snack
   foodName: text("food_name").notNull(),
   servingSize: text("serving_size"),
   servingQuantity: real("serving_quantity").default(1),
-  
+
   calories: integer("calories"),
   proteinGrams: real("protein_grams"),
   carbsGrams: real("carbs_grams"),
   fatGrams: real("fat_grams"),
   fiberGrams: real("fiber_grams"),
-  
+
+  // Source of the food entry (manual, barcode, photo_ai, voice)
+  source: text("source").default("manual"),
+  // Track which AI model was used for photo/voice analysis
+  aiModel: text("ai_model"), // e.g., "gpt-5.2", "gpt-4o"
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -206,13 +211,16 @@ export const exerciseLogs = pgTable("exercise_logs", {
 export const chatMessages = pgTable("chat_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  
+
   role: text("role").notNull(), // user, assistant
   content: text("content").notNull(),
-  
+
   // Context for AI
   contextType: text("context_type"), // onboarding, check_in, question, coaching, phase_transition
-  
+
+  // Track which AI model was used for this response
+  aiModel: text("ai_model"), // e.g., "gpt-5.2", "gpt-4o"
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 

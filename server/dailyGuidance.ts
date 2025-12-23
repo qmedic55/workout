@@ -13,6 +13,7 @@ import {
   initializeUserThread,
   generateDailyGuidanceWithThread,
 } from "./assistantService";
+import { AI_MODEL_LIGHT } from "./aiModels";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -558,7 +559,7 @@ If they're new, welcome them and set expectations appropriately.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: AI_MODEL_LIGHT,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Generate daily guidance for this user:\n${JSON.stringify(contextData, null, 2)}` },

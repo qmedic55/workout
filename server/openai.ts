@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { UserProfile, OnboardingAssessment } from "@shared/schema";
 import { buildMentorSystemPrompt, type MentorPromptContext } from "./prompts/mentor-system-prompt";
+import { AI_MODEL_PRIMARY, AI_MODEL_FALLBACK, AI_MODEL_VISION, AI_MODEL_VISION_FALLBACK, AI_MODEL_LIGHT } from "./aiModels";
 
 // Singleton OpenAI client - reused across all requests for better performance
 export const openai = new OpenAI({
@@ -10,46 +11,78 @@ export const openai = new OpenAI({
 // Re-export the context type for use in routes
 export type { MentorPromptContext as ChatContext };
 
+export interface MentorResponseResult {
+  response: string;
+  model: string;
+}
+
 export async function generateMentorResponse(
   userMessage: string,
   conversationHistory: Array<{ role: "user" | "assistant"; content: string }>,
   context: MentorPromptContext
-): Promise<string> {
+): Promise<MentorResponseResult> {
+  const systemPrompt = buildMentorSystemPrompt(context);
+
+  // Log conversation history lengths for debugging long response issues
+  const historyStats = conversationHistory.slice(-10).map((msg) => ({
+    role: msg.role,
+    length: msg.content.length,
+    preview: msg.content.slice(0, 50) + (msg.content.length > 50 ? "..." : "")
+  }));
+  console.log("[AI Debug] User:", context.profile?.firstName, "Message:", userMessage.slice(0, 100));
+  console.log("[AI Debug] History:", JSON.stringify(historyStats));
+
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...conversationHistory.slice(-10).map((msg) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    })),
+    { role: "user", content: userMessage },
+  ];
+
+  // Try primary model first, fallback if it fails
+  let modelToUse = AI_MODEL_PRIMARY;
+
   try {
-    const systemPrompt = buildMentorSystemPrompt(context);
-
-    // Log conversation history lengths for debugging long response issues
-    const historyStats = conversationHistory.slice(-10).map((msg) => ({
-      role: msg.role,
-      length: msg.content.length,
-      preview: msg.content.slice(0, 50) + (msg.content.length > 50 ? "..." : "")
-    }));
-    console.log("[AI Debug] User:", context.profile?.firstName, "Message:", userMessage.slice(0, 100));
-    console.log("[AI Debug] History:", JSON.stringify(historyStats));
-
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      ...conversationHistory.slice(-10).map((msg) => ({
-        role: msg.role as "user" | "assistant",
-        content: msg.content,
-      })),
-      { role: "user", content: userMessage },
-    ];
-
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-2024-11-20",
+      model: modelToUse,
       messages,
       max_tokens: 1000,
       temperature: 0.7,
     });
 
     const responseText = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
-    console.log("[AI Debug] Response length:", responseText.length);
+    console.log("[AI Debug] Response length:", responseText.length, "Model:", modelToUse);
 
-    return responseText;
-  } catch (error) {
-    console.error("OpenAI API error:", error);
-    throw new Error("Failed to generate AI response");
+    return {
+      response: responseText,
+      model: modelToUse,
+    };
+  } catch (primaryError) {
+    console.error(`[AI] Primary model ${AI_MODEL_PRIMARY} failed, trying fallback ${AI_MODEL_FALLBACK}:`, primaryError);
+
+    // Try fallback model
+    modelToUse = AI_MODEL_FALLBACK;
+    try {
+      const response = await openai.chat.completions.create({
+        model: modelToUse,
+        messages,
+        max_tokens: 1000,
+        temperature: 0.7,
+      });
+
+      const responseText = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
+      console.log("[AI Debug] Response length:", responseText.length, "Model:", modelToUse, "(fallback)");
+
+      return {
+        response: responseText,
+        model: modelToUse,
+      };
+    } catch (fallbackError) {
+      console.error(`[AI] Fallback model ${AI_MODEL_FALLBACK} also failed:`, fallbackError);
+      throw new Error("Failed to generate AI response");
+    }
   }
 }
 
@@ -348,7 +381,7 @@ Output: {
 Respond ONLY with valid JSON. Use null for missing optional fields.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: AI_MODEL_LIGHT,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: text },
@@ -442,17 +475,18 @@ export interface PhotoAnalysisResult {
     carbs: number;
     fat: number;
   };
+  model: string; // Track which AI model was used
   error?: string;
 }
 
 /**
- * Analyze a food photo using GPT-4 Vision to identify foods and estimate nutrition.
+ * Analyze a food photo using GPT Vision to identify foods and estimate nutrition.
+ * Uses fallback model if primary fails.
  * @param base64Image - Base64 encoded image data (without the data:image/... prefix)
  * @param imageType - MIME type of the image (e.g., "image/jpeg", "image/png")
  */
 export async function analyzePhotoFood(base64Image: string, imageType: string = "image/jpeg"): Promise<PhotoAnalysisResult> {
-  try {
-    const systemPrompt = `You are a nutrition analysis expert. Analyze this food photo and identify all visible food items.
+  const systemPrompt = `You are a nutrition analysis expert. Analyze this food photo and identify all visible food items.
 
 For each item, provide:
 - name: Common food name
@@ -488,91 +522,117 @@ RESPOND ONLY WITH JSON in this exact format:
 If you cannot identify any food in the image, respond with:
 {"items": [], "error": "No food items detected in the image"}`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    {
+      role: "user",
+      content: [
         {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${imageType};base64,${base64Image}`,
-                detail: "high",
-              },
-            },
-            {
-              type: "text",
-              text: "Please analyze this food image and identify all food items with their nutritional estimates.",
-            },
-          ],
+          type: "image_url",
+          image_url: {
+            url: `data:${imageType};base64,${base64Image}`,
+            detail: "high",
+          },
+        },
+        {
+          type: "text",
+          text: "Please analyze this food image and identify all food items with their nutritional estimates.",
         },
       ],
+    },
+  ];
+
+  // Try primary vision model, fallback if it fails
+  let modelUsed = AI_MODEL_VISION;
+  let content: string;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: modelUsed,
+      messages,
       max_tokens: 1000,
       temperature: 0.3,
     });
+    content = response.choices[0]?.message?.content || "{}";
+    console.log("[Photo AI] Used model:", modelUsed);
+  } catch (primaryError) {
+    console.error(`[Photo AI] Primary model ${AI_MODEL_VISION} failed, trying fallback ${AI_MODEL_VISION_FALLBACK}:`, primaryError);
 
-    const content = response.choices[0]?.message?.content || "{}";
-
-    // Try to parse the JSON response
-    let result;
+    // Try fallback model
+    modelUsed = AI_MODEL_VISION_FALLBACK;
     try {
-      // Handle case where response might have markdown code blocks
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : content;
-      result = JSON.parse(jsonStr.trim());
-    } catch (parseError) {
-      console.error("Failed to parse photo analysis response:", content);
+      const response = await openai.chat.completions.create({
+        model: modelUsed,
+        messages,
+        max_tokens: 1000,
+        temperature: 0.3,
+      });
+      content = response.choices[0]?.message?.content || "{}";
+      console.log("[Photo AI] Used fallback model:", modelUsed);
+    } catch (fallbackError) {
+      console.error(`[Photo AI] Fallback model ${AI_MODEL_VISION_FALLBACK} also failed:`, fallbackError);
       return {
         success: false,
         items: [],
         totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
-        error: "Failed to parse AI response",
+        model: modelUsed,
+        error: fallbackError instanceof Error ? fallbackError.message : "Failed to analyze photo",
       };
     }
+  }
 
-    if (result.error) {
-      return {
-        success: false,
-        items: [],
-        totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
-        error: result.error,
-      };
-    }
-
-    const items: PhotoFoodItem[] = (result.items || []).map((item: any) => ({
-      name: item.name || "Unknown food",
-      servingSize: item.servingSize || "1 serving",
-      calories: Math.round(item.calories || 0),
-      proteinGrams: Math.round(item.proteinGrams || 0),
-      carbsGrams: Math.round(item.carbsGrams || 0),
-      fatGrams: Math.round(item.fatGrams || 0),
-      confidence: Math.min(1, Math.max(0, item.confidence || 0.5)),
-    }));
-
-    const totalNutrition = items.reduce(
-      (acc, item) => ({
-        calories: acc.calories + item.calories,
-        protein: acc.protein + item.proteinGrams,
-        carbs: acc.carbs + item.carbsGrams,
-        fat: acc.fat + item.fatGrams,
-      }),
-      { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    );
-
-    return {
-      success: true,
-      items,
-      totalNutrition,
-    };
-  } catch (error) {
-    console.error("Error analyzing food photo:", error);
+  // Try to parse the JSON response
+  let result;
+  try {
+    // Handle case where response might have markdown code blocks
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+    const jsonStr = jsonMatch ? jsonMatch[1] : content;
+    result = JSON.parse(jsonStr.trim());
+  } catch (parseError) {
+    console.error("Failed to parse photo analysis response:", content);
     return {
       success: false,
       items: [],
       totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
-      error: error instanceof Error ? error.message : "Failed to analyze photo",
+      model: modelUsed,
+      error: "Failed to parse AI response",
     };
   }
+
+  if (result.error) {
+    return {
+      success: false,
+      items: [],
+      totalNutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      model: modelUsed,
+      error: result.error,
+    };
+  }
+
+  const items: PhotoFoodItem[] = (result.items || []).map((item: any) => ({
+    name: item.name || "Unknown food",
+    servingSize: item.servingSize || "1 serving",
+    calories: Math.round(item.calories || 0),
+    proteinGrams: Math.round(item.proteinGrams || 0),
+    carbsGrams: Math.round(item.carbsGrams || 0),
+    fatGrams: Math.round(item.fatGrams || 0),
+    confidence: Math.min(1, Math.max(0, item.confidence || 0.5)),
+  }));
+
+  const totalNutrition = items.reduce(
+    (acc, item) => ({
+      calories: acc.calories + item.calories,
+      protein: acc.protein + item.proteinGrams,
+      carbs: acc.carbs + item.carbsGrams,
+      fat: acc.fat + item.fatGrams,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+
+  return {
+    success: true,
+    items,
+    totalNutrition,
+    model: modelUsed,
+  };
 }

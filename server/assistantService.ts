@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { db } from "./db";
 import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
+import { AI_MODEL_ASSISTANT } from "./aiModels";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -114,7 +115,7 @@ export async function getOrCreateAssistant(): Promise<string> {
   const assistant = await openai.beta.assistants.create({
     name: "VitalPath Coach",
     instructions: ASSISTANT_INSTRUCTIONS,
-    model: "gpt-4o-mini",
+    model: AI_MODEL_ASSISTANT,
     tools: [], // We could add code interpreter or file search later
   });
 

@@ -7,6 +7,7 @@
 
 import OpenAI from "openai";
 import type { UserProfile, DailyLog, OnboardingAssessment, WorkoutTemplate } from "@shared/schema";
+import { AI_MODEL_PRIMARY } from "./aiModels";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -166,7 +167,7 @@ export async function analyzeProfileForRecommendations(
     const prompt = buildAnalysisPrompt(context);
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-2024-11-20",
+      model: AI_MODEL_PRIMARY,
       messages: [
         {
           role: "system",

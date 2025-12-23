@@ -9,6 +9,7 @@
 
 import OpenAI from "openai";
 import type { UserProfile, InsertProfileChange } from "@shared/schema";
+import { AI_MODEL_LIGHT } from "./aiModels";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -59,7 +60,7 @@ export async function parseAIResponseForActions(
   try {
     // Use AI to parse the response and extract any recommended changes
     const parseResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Use smaller model for parsing to save cost
+      model: AI_MODEL_LIGHT, // Use lighter model for parsing
       messages: [
         {
           role: "system",
