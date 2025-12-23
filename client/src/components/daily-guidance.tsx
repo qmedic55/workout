@@ -17,6 +17,11 @@ import {
   ArrowRight,
   Sparkles,
   RefreshCw,
+  Moon,
+  Brain,
+  Heart,
+  Zap,
+  Clock,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
@@ -24,19 +29,37 @@ interface DailyGuidance {
   greeting: string;
   todaysPlan: {
     nutrition: {
-      calories: number;
-      protein: number;
-      carbs: number;
-      fat: number;
+      targetCalories: number;
+      targetProtein: number;
+      targetCarbs: number;
+      targetFat: number;
+      consumedCalories: number;
+      consumedProtein: number;
+      consumedCarbs: number;
+      consumedFat: number;
       message: string;
     };
     workout: {
       recommended: boolean;
       type: string | null;
       message: string;
+      specificPlan: {
+        title: string;
+        duration: string;
+        exercises: Array<{
+          name: string;
+          sets?: number;
+          reps?: string;
+          duration?: string;
+          notes?: string;
+        }>;
+        timing?: string;
+        recovery?: string;
+      } | null;
     };
     steps: {
       target: number;
+      current: number;
       message: string;
     };
     focus: string;
@@ -45,6 +68,11 @@ interface DailyGuidance {
     type: "warning" | "reminder" | "celebration" | "question";
     message: string;
     priority: number;
+  }>;
+  proactiveInsights?: Array<{
+    category: "sleep" | "nutrition" | "workout" | "recovery" | "lifestyle";
+    insight: string;
+    actionable: string;
   }>;
   motivationalMessage: string;
   generatedAt: string;
@@ -78,6 +106,23 @@ function CheckInBadge({ type }: { type: string }) {
       {type.charAt(0).toUpperCase() + type.slice(1)}
     </span>
   );
+}
+
+function InsightIcon({ category }: { category: string }) {
+  switch (category) {
+    case "sleep":
+      return <Moon className="h-4 w-4 text-indigo-500" />;
+    case "nutrition":
+      return <Flame className="h-4 w-4 text-orange-500" />;
+    case "workout":
+      return <Dumbbell className="h-4 w-4 text-blue-500" />;
+    case "recovery":
+      return <Heart className="h-4 w-4 text-pink-500" />;
+    case "lifestyle":
+      return <Brain className="h-4 w-4 text-purple-500" />;
+    default:
+      return <Zap className="h-4 w-4 text-yellow-500" />;
+  }
 }
 
 function GuidanceSkeleton() {
@@ -176,12 +221,26 @@ export function DailyGuidance() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="text-center p-2 bg-muted/50 rounded">
-                <p className="text-lg font-bold">{guidance.todaysPlan.nutrition.calories}</p>
+                <p className="text-lg font-bold">
+                  <span className="text-primary">{guidance.todaysPlan.nutrition.consumedCalories}</span>
+                  <span className="text-muted-foreground">/{guidance.todaysPlan.nutrition.targetCalories}</span>
+                </p>
                 <p className="text-xs text-muted-foreground">Calories</p>
+                <Progress
+                  value={Math.min(100, (guidance.todaysPlan.nutrition.consumedCalories / guidance.todaysPlan.nutrition.targetCalories) * 100)}
+                  className="h-1 mt-1"
+                />
               </div>
               <div className="text-center p-2 bg-muted/50 rounded">
-                <p className="text-lg font-bold">{guidance.todaysPlan.nutrition.protein}g</p>
+                <p className="text-lg font-bold">
+                  <span className="text-primary">{guidance.todaysPlan.nutrition.consumedProtein}g</span>
+                  <span className="text-muted-foreground">/{guidance.todaysPlan.nutrition.targetProtein}g</span>
+                </p>
                 <p className="text-xs text-muted-foreground">Protein</p>
+                <Progress
+                  value={Math.min(100, (guidance.todaysPlan.nutrition.consumedProtein / guidance.todaysPlan.nutrition.targetProtein) * 100)}
+                  className="h-1 mt-1"
+                />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">{guidance.todaysPlan.nutrition.message}</p>
@@ -198,31 +257,65 @@ export function DailyGuidance() {
           <CardHeader className="pb-2">
             <div className="flex items-center gap-2">
               <Dumbbell className="h-4 w-4 text-chart-1" />
-              <CardTitle className="text-sm">Workout</CardTitle>
+              <CardTitle className="text-sm">Today's Workout</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="text-center p-2 bg-muted/50 rounded">
-              {guidance.todaysPlan.workout.recommended ? (
-                <>
-                  <p className="text-lg font-bold text-chart-1">
-                    {guidance.todaysPlan.workout.type || "Workout Day"}
+            {guidance.todaysPlan.workout.recommended && guidance.todaysPlan.workout.specificPlan ? (
+              <>
+                <div className="p-2 bg-muted/50 rounded">
+                  <p className="font-semibold text-sm text-chart-1">
+                    {guidance.todaysPlan.workout.specificPlan.title}
                   </p>
-                  <p className="text-xs text-muted-foreground">Recommended</p>
-                </>
-              ) : (
-                <>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                    <Clock className="h-3 w-3" />
+                    <span>{guidance.todaysPlan.workout.specificPlan.duration}</span>
+                  </div>
+                </div>
+                {/* Show first 3 exercises as preview */}
+                <div className="space-y-1.5">
+                  {guidance.todaysPlan.workout.specificPlan.exercises.slice(0, 3).map((exercise, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-xs bg-muted/30 p-1.5 rounded">
+                      <span className="font-medium">{exercise.name}</span>
+                      <span className="text-muted-foreground">
+                        {exercise.sets && exercise.reps
+                          ? `${exercise.sets}×${exercise.reps}`
+                          : exercise.duration || ""}
+                      </span>
+                    </div>
+                  ))}
+                  {guidance.todaysPlan.workout.specificPlan.exercises.length > 3 && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      +{guidance.todaysPlan.workout.specificPlan.exercises.length - 3} more exercises
+                    </p>
+                  )}
+                </div>
+                {guidance.todaysPlan.workout.specificPlan.timing && (
+                  <div className="flex items-start gap-2 text-xs bg-blue-50 dark:bg-blue-950/20 p-2 rounded border border-blue-200 dark:border-blue-800">
+                    <Clock className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />
+                    <span>{guidance.todaysPlan.workout.specificPlan.timing}</span>
+                  </div>
+                )}
+                <Link href="/workouts">
+                  <Button variant="default" size="sm" className="w-full">
+                    Start Workout <ArrowRight className="h-3 w-3 ml-1" />
+                  </Button>
+                </Link>
+              </>
+            ) : (
+              <>
+                <div className="text-center p-2 bg-muted/50 rounded">
                   <p className="text-lg font-bold text-muted-foreground">Rest Day</p>
                   <p className="text-xs text-muted-foreground">Recovery Focus</p>
-                </>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">{guidance.todaysPlan.workout.message}</p>
-            <Link href="/workouts">
-              <Button variant="outline" size="sm" className="w-full">
-                View Workouts <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </Link>
+                </div>
+                <p className="text-xs text-muted-foreground">{guidance.todaysPlan.workout.message}</p>
+                <Link href="/workouts">
+                  <Button variant="outline" size="sm" className="w-full">
+                    View Options <ArrowRight className="h-3 w-3 ml-1" />
+                  </Button>
+                </Link>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -236,8 +329,15 @@ export function DailyGuidance() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="text-center p-2 bg-muted/50 rounded">
-              <p className="text-lg font-bold">{guidance.todaysPlan.steps.target.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Target Steps</p>
+              <p className="text-lg font-bold">
+                <span className="text-primary">{(guidance.todaysPlan.steps.current || 0).toLocaleString()}</span>
+                <span className="text-muted-foreground">/{guidance.todaysPlan.steps.target.toLocaleString()}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">Steps Today</p>
+              <Progress
+                value={Math.min(100, ((guidance.todaysPlan.steps.current || 0) / guidance.todaysPlan.steps.target) * 100)}
+                className="h-1 mt-1"
+              />
             </div>
             <p className="text-xs text-muted-foreground">{guidance.todaysPlan.steps.message}</p>
             <Link href="/daily-log">
@@ -280,6 +380,37 @@ export function DailyGuidance() {
                       <CheckInBadge type={checkIn.type} />
                     </div>
                     <p className="text-sm">{checkIn.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Proactive Insights */}
+      {guidance.proactiveInsights && guidance.proactiveInsights.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Brain className="h-4 w-4 text-primary" />
+              Proactive Insights
+            </CardTitle>
+            <CardDescription>AI recommendations based on your patterns</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {guidance.proactiveInsights.map((insight, index) => (
+                <div
+                  key={index}
+                  className="flex items-start gap-3 p-3 rounded-lg border bg-gradient-to-r from-muted/30 to-muted/10"
+                >
+                  <InsightIcon category={insight.category} />
+                  <div className="flex-1 space-y-1">
+                    <p className="text-sm font-medium">{insight.insight}</p>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-medium">Action:</span> {insight.actionable}
+                    </p>
                   </div>
                 </div>
               ))}
