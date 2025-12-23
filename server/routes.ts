@@ -11,6 +11,14 @@ import { sendProactiveNotifications, getDailyProgressSummary, generateAfternoonR
 import { generateDailyGuidance, generateDailyGuidanceWithAssistant } from "./dailyGuidance";
 import { format, subDays, parseISO } from "date-fns";
 import {
+  getTodayInTimezone,
+  getYesterdayInTimezone,
+  getDaysAgoInTimezone,
+  getCurrentHourInTimezone,
+  getSafeTimezone,
+  DEFAULT_TIMEZONE,
+} from "./timezone";
+import {
   insertUserProfileSchema,
   insertDailyLogSchema,
   insertFoodEntrySchema,
@@ -558,35 +566,6 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
-  // Test endpoint to manually trigger a milestone (for debugging)
-  app.post("/api/milestones/test-create", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const userId = getUserId(req);
-      console.log(`[MILESTONE TEST] Creating test milestone for user ${userId}`);
-
-      // First check if it already exists
-      const existing = await storage.getUserMilestone(userId, "first_food_log");
-      console.log(`[MILESTONE TEST] Existing:`, existing);
-
-      if (existing) {
-        res.json({ success: false, message: "Milestone already exists", existing });
-        return;
-      }
-
-      const milestone = await storage.createUserMilestone({
-        userId,
-        milestoneKey: "first_food_log",
-        data: { test: true },
-      });
-      console.log(`[MILESTONE TEST] Created:`, milestone);
-
-      res.json({ success: true, milestone });
-    } catch (error) {
-      console.error("[MILESTONE TEST] Error:", error);
-      res.status(500).json({ error: "Failed to create test milestone", details: String(error) });
-    }
-  });
-
   // ==================== Progressive Prompts Routes ====================
 
   // Get the next progressive prompt to show the user
@@ -678,8 +657,11 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
   app.get("/api/daily-logs/today", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const today = format(new Date(), "yyyy-MM-dd");
-      const log = await storage.getDailyLog(getUserId(req), today);
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+      const userTimezone = getSafeTimezone(profile?.timezone);
+      const today = getTodayInTimezone(userTimezone);
+      const log = await storage.getDailyLog(userId, today);
       res.json(log || null);
     } catch (error) {
       console.error("Error fetching today's log:", error);
@@ -700,12 +682,16 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
   app.get("/api/daily-logs/range/:timeRange", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      const userId = getUserId(req);
+      const profile = await storage.getProfile(userId);
+      const userTimezone = getSafeTimezone(profile?.timezone);
+
       const { timeRange } = req.params;
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-      const startDate = format(subDays(new Date(), days), "yyyy-MM-dd");
-      const endDate = format(new Date(), "yyyy-MM-dd");
-      
-      const logs = await storage.getDailyLogs(getUserId(req), startDate, endDate);
+      const startDate = getDaysAgoInTimezone(userTimezone, days);
+      const endDate = getTodayInTimezone(userTimezone);
+
+      const logs = await storage.getDailyLogs(userId, startDate, endDate);
       res.json(logs);
     } catch (error) {
       console.error("Error fetching logs:", error);
@@ -1303,10 +1289,13 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // Gather all context data for the AI
       const assessment = await storage.getOnboardingAssessment(userId);
-      const today = format(new Date(), "yyyy-MM-dd");
-      const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
-      const weekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
-      const yearAgo = format(subDays(new Date(), 365), "yyyy-MM-dd");
+
+      // Use user's timezone for all date calculations
+      const userTimezone = getSafeTimezone(profile.timezone);
+      const today = getTodayInTimezone(userTimezone);
+      const yesterday = getYesterdayInTimezone(userTimezone);
+      const weekAgo = getDaysAgoInTimezone(userTimezone, 7);
+      const yearAgo = getDaysAgoInTimezone(userTimezone, 365);
 
       // Get today's log
       const todayLog = await storage.getDailyLog(userId, today);
@@ -1349,7 +1338,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           yesterdayFoodEntries,
           recentExerciseLogs,
           healthNotes,
-          currentHour: new Date().getHours(),
+          currentHour: getCurrentHourInTimezone(userTimezone),
           yearlyDailyLogs,
           yearlyExerciseLogs,
           yearlyFoodEntries,
@@ -1371,7 +1360,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           yesterdayFoodEntries,
           recentExerciseLogs,
           healthNotes,
-          currentHour: new Date().getHours(),
+          currentHour: getCurrentHourInTimezone(userTimezone),
           yearlyDailyLogs,
           yearlyExerciseLogs,
           yearlyFoodEntries,

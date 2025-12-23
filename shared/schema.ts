@@ -42,6 +42,9 @@ export const userProfiles = pgTable("user_profiles", {
   coachingTone: text("coaching_tone").default("empathetic"), // scientific, casual, motivational, tough_love
   enableNotifications: boolean("enable_notifications").default(true), // Daily reminders, insights, check-ins
 
+  // User timezone (IANA format, e.g., "America/New_York")
+  timezone: text("timezone").default("America/New_York"),
+
   // Health conditions (for safety disclaimers)
   hasHealthConditions: boolean("has_health_conditions").default(false),
   healthConditionsNotes: text("health_conditions_notes"),
