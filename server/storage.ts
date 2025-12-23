@@ -82,6 +82,7 @@ export interface IStorage {
   getFoodEntries(userId: string, date: string): Promise<FoodEntry[]>;
   getFoodEntriesRange(userId: string, startDate: string, endDate: string): Promise<FoodEntry[]>;
   createFoodEntry(entry: InsertFoodEntry): Promise<FoodEntry>;
+  updateFoodEntry(id: string, userId: string, updates: Partial<InsertFoodEntry>): Promise<FoodEntry | undefined>;
   deleteFoodEntry(id: string, userId: string): Promise<boolean>;
 
   // Exercise Logs
@@ -341,6 +342,24 @@ export class DatabaseStorage implements IStorage {
     const result = await db.insert(foodEntries).values(entry).returning();
     // Sync nutrition totals to daily_logs
     await this.syncDailyNutrition(entry.userId, entry.logDate);
+    return result[0];
+  }
+
+  async updateFoodEntry(id: string, userId: string, updates: Partial<InsertFoodEntry>): Promise<FoodEntry | undefined> {
+    // Get the entry first
+    const entries = await db
+      .select()
+      .from(foodEntries)
+      .where(and(eq(foodEntries.id, id), eq(foodEntries.userId, userId)));
+
+    if (entries.length === 0) return undefined;
+
+    const result = await db
+      .update(foodEntries)
+      .set(updates)
+      .where(and(eq(foodEntries.id, id), eq(foodEntries.userId, userId)))
+      .returning();
+
     return result[0];
   }
 

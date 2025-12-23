@@ -24,7 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode, CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Utensils, Target, Calculator, Search, Bookmark, BookmarkPlus, ScanBarcode, CalendarIcon, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import { FoodSearch } from "@/components/food-search";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import type { FoodEntry, UserProfile, DailyLog, MealTemplate } from "@shared/schema";
@@ -70,9 +70,28 @@ function MacroProgress({ label, current, target, color }: { label: string; curre
   );
 }
 
-function FoodEntryCard({ entry, onDelete }: { entry: FoodEntry; onDelete: (id: string) => void }) {
+function FoodEntryCard({
+  entry,
+  onDelete,
+  onDragStart,
+  isDragging = false,
+}: {
+  entry: FoodEntry;
+  onDelete: (id: string) => void;
+  onDragStart?: (e: React.DragEvent, entry: FoodEntry) => void;
+  isDragging?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+    <div
+      className={`flex items-center justify-between p-3 rounded-lg bg-muted/50 transition-all ${
+        isDragging ? "opacity-50 ring-2 ring-primary" : ""
+      } ${onDragStart ? "cursor-grab active:cursor-grabbing" : ""}`}
+      draggable={!!onDragStart}
+      onDragStart={(e) => onDragStart?.(e, entry)}
+    >
+      {onDragStart && (
+        <GripVertical className="h-4 w-4 text-muted-foreground mr-2 shrink-0" />
+      )}
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate" data-testid={`text-food-${entry.id}`}>{entry.foodName}</p>
         <div className="flex flex-wrap gap-2 mt-1">
@@ -400,6 +419,56 @@ export default function Nutrition() {
       toast({ title: "Deleted", description: "Food entry removed." });
     },
   });
+
+  // Drag and drop state for moving food between meals
+  const [draggingEntry, setDraggingEntry] = useState<FoodEntry | null>(null);
+  const [dragOverMeal, setDragOverMeal] = useState<string | null>(null);
+
+  // Mutation to move food to a different meal
+  const moveFoodMutation = useMutation({
+    mutationFn: async ({ id, mealType }: { id: string; mealType: string }) => {
+      const response = await apiRequest("PATCH", `/api/food-entries/${id}`, { mealType });
+      return response.json();
+    },
+    onSuccess: (_, { mealType }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
+      toast({ title: "Food moved", description: `Moved to ${mealType}.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleDragStart = (e: React.DragEvent, entry: FoodEntry) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", entry.id);
+    setDraggingEntry(entry);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingEntry(null);
+    setDragOverMeal(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, mealType: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverMeal(mealType);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverMeal(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetMealType: string) => {
+    e.preventDefault();
+    const entryId = e.dataTransfer.getData("text/plain");
+    if (entryId && draggingEntry && draggingEntry.mealType !== targetMealType) {
+      moveFoodMutation.mutate({ id: entryId, mealType: targetMealType });
+    }
+    setDraggingEntry(null);
+    setDragOverMeal(null);
+  };
 
   const onSubmit = (data: FoodEntryFormData) => {
     addFoodMutation.mutate(data);
@@ -815,26 +884,49 @@ export default function Nutrition() {
 
       <div className="grid gap-6 md:grid-cols-2">
         {(["breakfast", "lunch", "dinner", "snack"] as const).map((meal) => (
-          <Card key={meal}>
+          <Card
+            key={meal}
+            className={`transition-all ${
+              dragOverMeal === meal && draggingEntry?.mealType !== meal
+                ? "ring-2 ring-primary ring-offset-2 bg-primary/5"
+                : ""
+            }`}
+            onDragOver={(e) => handleDragOver(e, meal)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, meal)}
+          >
             <CardHeader className="pb-3">
-              <CardTitle className="text-base capitalize">{meal}</CardTitle>
-              <CardDescription>
-                {mealEntries[meal].reduce((sum, e) => sum + (e.calories || 0), 0)} kcal
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base capitalize">{meal}</CardTitle>
+                  <CardDescription>
+                    {mealEntries[meal].reduce((sum, e) => sum + (e.calories || 0), 0)} kcal
+                  </CardDescription>
+                </div>
+                {dragOverMeal === meal && draggingEntry?.mealType !== meal && (
+                  <Badge variant="secondary" className="animate-pulse">
+                    Drop here
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-2">
               {mealEntries[meal].length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  No foods logged yet
+                  {draggingEntry ? "Drop food here" : "No foods logged yet"}
                 </p>
               ) : (
-                mealEntries[meal].map((entry) => (
-                  <FoodEntryCard
-                    key={entry.id}
-                    entry={entry}
-                    onDelete={(id) => deleteFoodMutation.mutate(id)}
-                  />
-                ))
+                <div onDragEnd={handleDragEnd}>
+                  {mealEntries[meal].map((entry) => (
+                    <FoodEntryCard
+                      key={entry.id}
+                      entry={entry}
+                      onDelete={(id) => deleteFoodMutation.mutate(id)}
+                      onDragStart={handleDragStart}
+                      isDragging={draggingEntry?.id === entry.id}
+                    />
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>

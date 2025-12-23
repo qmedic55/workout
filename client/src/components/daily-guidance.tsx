@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Flame,
   Dumbbell,
@@ -140,11 +140,19 @@ function GuidanceSkeleton() {
 }
 
 export function DailyGuidance() {
+  const [, navigate] = useLocation();
   const { data: guidance, isLoading, error, refetch, isFetching } = useQuery<DailyGuidance>({
     queryKey: ["/api/daily-guidance"],
     staleTime: 5 * 60 * 1000, // Consider stale after 5 minutes
     refetchOnMount: true,
   });
+
+  const handleStartWorkout = () => {
+    if (guidance?.todaysPlan?.workout?.specificPlan) {
+      const workoutData = encodeURIComponent(JSON.stringify(guidance.todaysPlan.workout.specificPlan));
+      navigate(`/workout-session?workout=${workoutData}`);
+    }
+  };
 
   if (isLoading) {
     return <GuidanceSkeleton />;
@@ -296,11 +304,9 @@ export function DailyGuidance() {
                     <span>{guidance.todaysPlan.workout.specificPlan.timing}</span>
                   </div>
                 )}
-                <Link href="/workouts">
-                  <Button variant="default" size="sm" className="w-full">
-                    Start Workout <ArrowRight className="h-3 w-3 ml-1" />
-                  </Button>
-                </Link>
+                <Button variant="default" size="sm" className="w-full" onClick={handleStartWorkout}>
+                  Start Workout <ArrowRight className="h-3 w-3 ml-1" />
+                </Button>
               </>
             ) : (
               <>

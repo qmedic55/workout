@@ -532,16 +532,48 @@ export interface NaturalLanguageParseResult {
 /**
  * Parse natural language text to extract all trackable health data.
  * Handles food, workouts, sleep, steps, biofeedback, and more.
+ * @param text - The natural language input to parse
+ * @param timezone - Optional timezone for time-based meal detection (e.g., "America/New_York")
  */
-export async function parseNaturalLanguageInput(text: string): Promise<NaturalLanguageParseResult> {
+export async function parseNaturalLanguageInput(text: string, timezone?: string): Promise<NaturalLanguageParseResult> {
   try {
+    // Get current hour in user's timezone for intelligent meal type detection
+    const now = new Date();
+    let currentHour = now.getHours();
+    if (timezone) {
+      try {
+        const hourStr = now.toLocaleString("en-US", { timeZone: timezone, hour: "numeric", hour12: false });
+        currentHour = parseInt(hourStr, 10);
+      } catch (e) {
+        // fallback to server time if timezone is invalid
+      }
+    }
+
+    // Determine default meal type based on time
+    let defaultMealType: string;
+    if (currentHour >= 5 && currentHour < 11) {
+      defaultMealType = "breakfast";
+    } else if (currentHour >= 11 && currentHour < 15) {
+      defaultMealType = "lunch";
+    } else if (currentHour >= 17 && currentHour < 21) {
+      defaultMealType = "dinner";
+    } else {
+      defaultMealType = "snack";
+    }
+
     const systemPrompt = `You are a health data extraction assistant. Analyze the text and extract any trackable health data the user is reporting.
+
+CURRENT TIME CONTEXT: It's ${currentHour}:00 in the user's timezone. If they don't specify a meal type, use context clues or default to "${defaultMealType}" based on the time.
 
 EXTRACT THE FOLLOWING WHEN PRESENT:
 
 1. **FOOD** (things they ATE, not planning to eat):
    - Each food item with nutritional estimates
-   - Meal type (breakfast/lunch/dinner/snack)
+   - Meal type (breakfast/lunch/dinner/snack) - infer from food type and time if not stated:
+     * "eggs and coffee" in the morning = breakfast
+     * "sandwich" at noon = lunch
+     * "steak and veggies" in evening = dinner
+     * Protein shakes, fruit, snacks between meals = snack
    - Use reasonable estimates for common foods
 
 2. **EXERCISES** (workouts they DID, not planning):
@@ -681,8 +713,8 @@ Respond ONLY with valid JSON. Use null for missing optional fields.`;
 }
 
 // Legacy function for backwards compatibility
-export async function parseFoodFromText(text: string): Promise<{ containsFood: boolean; foods: ParsedFood[]; isHealthNote: boolean }> {
-  const result = await parseNaturalLanguageInput(text);
+export async function parseFoodFromText(text: string, timezone?: string): Promise<{ containsFood: boolean; foods: ParsedFood[]; isHealthNote: boolean }> {
+  const result = await parseNaturalLanguageInput(text, timezone);
   return {
     containsFood: result.foods.length > 0,
     foods: result.foods,

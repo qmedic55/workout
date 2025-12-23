@@ -801,6 +801,32 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // Update a food entry (e.g., change meal type for drag-and-drop)
+  app.patch("/api/food-entries/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const userId = getUserId(req);
+      const updates = req.body;
+
+      // Validate mealType if provided
+      if (updates.mealType && !["breakfast", "lunch", "dinner", "snack"].includes(updates.mealType)) {
+        res.status(400).json({ error: "Invalid meal type" });
+        return;
+      }
+
+      const updatedEntry = await storage.updateFoodEntry(id, userId, updates);
+
+      if (updatedEntry) {
+        res.json(updatedEntry);
+      } else {
+        res.status(404).json({ error: "Food entry not found" });
+      }
+    } catch (error) {
+      console.error("Error updating food entry:", error);
+      res.status(500).json({ error: "Failed to update food entry" });
+    }
+  });
+
   // ==================== Exercise Log Routes ====================
 
   // Get exercise logs for a date
@@ -1835,10 +1861,14 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       }
 
       const trimmedContent = content.trim();
-      const today = format(new Date(), "yyyy-MM-dd");
+
+      // Get user's timezone for intelligent meal type detection
+      const profile = await storage.getProfile(userId);
+      const userTimezone = getSafeTimezone(profile?.timezone);
+      const today = getTodayInTimezone(userTimezone);
 
       // Use AI to parse all trackable data from natural language
-      const parseResult = await parseNaturalLanguageInput(trimmedContent);
+      const parseResult = await parseNaturalLanguageInput(trimmedContent, userTimezone);
 
       // Track what was created for the response
       const createdFoodEntries: any[] = [];

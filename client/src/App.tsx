@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/use-auth";
+import { useTimezoneSync } from "@/hooks/use-timezone-sync";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Activity, Brain, Heart, Sparkles } from "lucide-react";
@@ -30,6 +31,7 @@ const Profile = lazy(() => import("@/pages/profile"));
 const Goals = lazy(() => import("@/pages/goals"));
 const Playground = lazy(() => import("@/pages/playground"));
 const PublicProfile = lazy(() => import("@/pages/public-profile"));
+const WorkoutSession = lazy(() => import("@/pages/workout-session"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Route loading fallback
@@ -58,6 +60,7 @@ function Router() {
         <Route path="/profile" component={Profile} />
         <Route path="/goals" component={Goals} />
         <Route path="/playground" component={Playground} />
+        <Route path="/workout-session" component={WorkoutSession} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -169,6 +172,9 @@ function LoadingScreen() {
 }
 
 function AuthenticatedApp() {
+  // Sync user's timezone to server on first load
+  useTimezoneSync();
+
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
