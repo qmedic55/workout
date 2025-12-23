@@ -566,16 +566,18 @@ export default function WorkoutSession() {
       return updated;
     });
 
-    moveToNextExercise();
+    // Don't show rest timer when skipping
+    moveToNextExercise(false);
   }, [workout, currentExerciseIndex]);
 
-  const moveToNextExercise = useCallback(() => {
+  const moveToNextExercise = useCallback((showRestTimer: boolean = true) => {
     if (!workout) return;
 
     if (currentExerciseIndex < workout.exercises.length - 1) {
       setCurrentExerciseIndex(currentExerciseIndex + 1);
       setCurrentSetIndex(1);
-      setIsResting(false);
+      // Start rest timer between exercises (unless skipping)
+      setIsResting(showRestTimer);
     } else {
       // Workout complete
       finishWorkout();
