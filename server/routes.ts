@@ -1597,6 +1597,24 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
     }
   });
 
+  // Get a specific workout by ID
+  app.get("/api/workouts/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const templates = await storage.getWorkoutTemplates();
+      const workout = templates.find((t) => t.id === id);
+
+      if (!workout) {
+        return res.status(404).json({ error: "Workout not found" });
+      }
+
+      res.json(workout);
+    } catch (error) {
+      console.error("Error fetching workout:", error);
+      res.status(500).json({ error: "Failed to fetch workout" });
+    }
+  });
+
   // Get recommended workouts for the user's current phase
   app.get("/api/workouts/recommended", isAuthenticated, async (req: Request, res: Response) => {
     try {

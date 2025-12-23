@@ -60,7 +60,7 @@ function Router() {
         <Route path="/profile" component={Profile} />
         <Route path="/goals" component={Goals} />
         <Route path="/playground" component={Playground} />
-        <Route path="/workout-session" component={WorkoutSession} />
+        <Route path="/workout-session/:id" component={WorkoutSession} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

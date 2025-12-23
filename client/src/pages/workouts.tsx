@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { format, subDays, addDays, isToday } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3, History, CalendarIcon, ChevronLeft } from "lucide-react";
+import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3, History, CalendarIcon, ChevronLeft, Play } from "lucide-react";
 import { WorkoutAnalytics } from "@/components/workout-analytics";
 import { RestDayCard } from "@/components/rest-day-card";
 import type { WorkoutTemplate, ExerciseLog } from "@shared/schema";
@@ -173,7 +174,12 @@ function WorkoutCard({ workout, onClick }: { workout: WorkoutTemplate; onClick: 
 }
 
 function WorkoutDetail({ workout, onClose }: { workout: WorkoutTemplate; onClose: () => void }) {
+  const [, setLocation] = useLocation();
   const exercises = (workout.exercises as any[]) || [];
+
+  const handleStartWorkout = () => {
+    setLocation(`/workout-session/${workout.id}`);
+  };
 
   return (
     <div className="space-y-6">
@@ -186,6 +192,12 @@ function WorkoutDetail({ workout, onClose }: { workout: WorkoutTemplate; onClose
           Back
         </Button>
       </div>
+
+      {/* Start Workout Button */}
+      <Button size="lg" className="w-full" onClick={handleStartWorkout} data-testid="button-start-workout">
+        <Play className="h-5 w-5 mr-2" />
+        Start Workout
+      </Button>
 
       <div className="flex flex-wrap gap-3">
         <div className="flex items-center gap-2 text-sm">
