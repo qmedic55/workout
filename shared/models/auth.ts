@@ -27,35 +27,5 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// OAuth accounts table - links OAuth provider accounts to users
-export const oauthAccounts = pgTable("oauth_accounts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-
-  // OAuth provider info
-  provider: varchar("provider", { length: 50 }).notNull(), // google, apple, facebook, twitter
-  providerAccountId: varchar("provider_account_id").notNull(), // The user's ID from the provider
-
-  // Optional tokens (for providers that need refresh)
-  accessToken: varchar("access_token"),
-  refreshToken: varchar("refresh_token"),
-  tokenExpiresAt: timestamp("token_expires_at"),
-
-  // Profile data from provider
-  providerEmail: varchar("provider_email"),
-  providerName: varchar("provider_name"),
-  providerAvatar: varchar("provider_avatar"),
-
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  // Ensure a provider account can only be linked to one user
-  index("idx_oauth_provider_account").on(table.provider, table.providerAccountId),
-  // Quick lookup by user
-  index("idx_oauth_user").on(table.userId),
-]);
-
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
-export type OAuthAccount = typeof oauthAccounts.$inferSelect;
-export type InsertOAuthAccount = typeof oauthAccounts.$inferInsert;

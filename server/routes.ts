@@ -27,6 +27,8 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { authStorage } from "./replit_integrations/auth/storage";
+import * as jose from "jose";
 
 // Simple in-memory rate limiter for AI endpoints
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
@@ -63,14 +65,8 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // Helper to get user ID from authenticated request
-// Supports both old Replit format (claims.sub) and new OAuth format (id)
 function getUserId(req: Request): string {
-  const user = req.user as any;
-  // New OAuth format uses .id directly
-  if (user?.id) return user.id;
-  // Old Replit format uses .claims.sub
-  if (user?.claims?.sub) return user.claims.sub;
-  return "";
+  return (req.user as any)?.claims?.sub || "";
 }
 
 // Phase-specific workout guidance messages
@@ -259,9 +255,102 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  // Set up OAuth Auth (handles Google, Facebook, Twitter, Apple)
+  // Set up Replit Auth (must be before other routes)
   await setupAuth(app);
   registerAuthRoutes(app);
+
+  // ==================== Apple Sign In Routes ====================
+
+  // Apple's public keys for JWT verification
+  const APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys";
+
+  async function verifyAppleToken(identityToken: string): Promise<{ sub: string; email?: string }> {
+    // Fetch Apple's public keys
+    const JWKS = jose.createRemoteJWKSet(new URL(APPLE_KEYS_URL));
+
+    // Verify the token
+    const { payload } = await jose.jwtVerify(identityToken, JWKS, {
+      issuer: "https://appleid.apple.com",
+      audience: "com.vitalpath.app",
+    });
+
+    return {
+      sub: payload.sub as string,
+      email: payload.email as string | undefined,
+    };
+  }
+
+  app.post("/api/auth/apple", async (req: Request, res: Response) => {
+    try {
+      const { identityToken, email, givenName, familyName, user } = req.body;
+
+      if (!identityToken) {
+        res.status(400).json({ error: "Identity token is required" });
+        return;
+      }
+
+      // Verify the Apple identity token
+      const verifiedPayload = await verifyAppleToken(identityToken);
+      const appleUserId = `apple_${verifiedPayload.sub}`;
+
+      // Check if user exists, if not create them
+      let dbUser = await authStorage.getUser(appleUserId);
+
+      if (!dbUser) {
+        // Create new user
+        dbUser = await authStorage.upsertUser({
+          id: appleUserId,
+          email: email || verifiedPayload.email || null,
+          firstName: givenName || null,
+          lastName: familyName || null,
+          profileImageUrl: null,
+        });
+
+        // Create initial profile
+        await storage.createProfile({
+          userId: appleUserId,
+          firstName: givenName || undefined,
+          lastName: familyName || undefined,
+          onboardingCompleted: false,
+        });
+      }
+
+      // Set session cookie
+      const sessionToken = Buffer.from(JSON.stringify({
+        sub: appleUserId,
+        email: email || verifiedPayload.email,
+        firstName: givenName,
+        lastName: familyName,
+        iat: Date.now(),
+      })).toString("base64");
+
+      res.cookie("__session", sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: appleUserId,
+          email: email || verifiedPayload.email,
+          firstName: givenName,
+          lastName: familyName,
+        },
+      });
+    } catch (error: any) {
+      console.error("Apple auth error:", error);
+
+      if (error.code === "ERR_JWT_EXPIRED") {
+        res.status(401).json({ error: "Token expired" });
+        return;
+      }
+
+      res.status(401).json({ error: "Invalid Apple token" });
+    }
+  });
 
   // ==================== Profile Routes ====================
 
