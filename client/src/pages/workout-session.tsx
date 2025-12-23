@@ -366,6 +366,17 @@ function ExerciseCard({
   );
 }
 
+interface AdditionalWorkoutRecommendation {
+  recommended: boolean;
+  message: string;
+  suggestions?: Array<{
+    type: string;
+    name: string;
+    duration: string;
+    description: string;
+  }>;
+}
+
 function WorkoutSummary({
   workout,
   progress,
@@ -385,6 +396,24 @@ function WorkoutSummary({
 
   const minutes = Math.floor(duration / 60);
   const seconds = duration % 60;
+
+  // Fetch AI recommendation for additional workouts
+  const { data: additionalWorkout, isLoading: isLoadingRecommendation } = useQuery<AdditionalWorkoutRecommendation>({
+    queryKey: ["/api/workout-recommendation/additional", workout.title, duration],
+    queryFn: async () => {
+      const response = await apiRequest("POST", "/api/workout-recommendation/additional", {
+        completedWorkout: workout.title,
+        completedExercises: completedExercises.map(e => e.exerciseName),
+        durationMinutes: Math.round(duration / 60),
+        totalVolume,
+      });
+      if (!response.ok) {
+        throw new Error("Failed to get recommendation");
+      }
+      return response.json();
+    },
+    staleTime: Infinity, // Don't refetch
+  });
 
   return (
     <div className="space-y-6">
@@ -445,6 +474,43 @@ function WorkoutSummary({
           ))}
         </CardContent>
       </Card>
+
+      {/* AI Recommendation for Additional Workouts */}
+      {isLoadingRecommendation ? (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Sparkles className="h-4 w-4 animate-pulse" />
+              <span className="text-sm">Getting AI recommendations...</span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : additionalWorkout ? (
+        <Card className={additionalWorkout.recommended ? "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20" : "border-amber-200 bg-amber-50/50 dark:bg-amber-950/20"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className={`h-4 w-4 ${additionalWorkout.recommended ? "text-blue-500" : "text-amber-500"}`} />
+              {additionalWorkout.recommended ? "Want to do more?" : "Recovery Recommendation"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{additionalWorkout.message}</p>
+            {additionalWorkout.recommended && additionalWorkout.suggestions && additionalWorkout.suggestions.length > 0 && (
+              <div className="space-y-2">
+                {additionalWorkout.suggestions.map((suggestion, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg border bg-background">
+                    <div>
+                      <p className="font-medium text-sm">{suggestion.name}</p>
+                      <p className="text-xs text-muted-foreground">{suggestion.description}</p>
+                    </div>
+                    <Badge variant="secondary">{suggestion.duration}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Button className="w-full" onClick={onClose}>
         Finish & Return to Dashboard

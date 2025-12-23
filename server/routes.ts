@@ -2954,6 +2954,103 @@ Return a JSON object with this exact structure:
     }
   });
 
+  // ==================== Additional Workout Recommendations ====================
+
+  app.post("/api/workout-recommendation/additional", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { completedWorkout, completedExercises, durationMinutes, totalVolume } = req.body;
+
+      // Get user profile and recent activity data
+      const profile = await storage.getProfile(userId);
+      const today = format(new Date(), "yyyy-MM-dd");
+      const startDate = format(subDays(new Date(), 7), "yyyy-MM-dd");
+
+      const [dailyLogs, todayLog] = await Promise.all([
+        storage.getDailyLogs(userId, startDate, today),
+        storage.getDailyLog(userId, today),
+      ]);
+
+      // Calculate recent workout frequency and recovery metrics
+      const recentWorkouts = dailyLogs.filter(log => log.workoutCompleted).length;
+      const avgSleep = dailyLogs.length > 0
+        ? dailyLogs.reduce((sum, log) => sum + (log.sleepHours || 0), 0) / dailyLogs.length
+        : 7;
+      const avgEnergy = dailyLogs.length > 0
+        ? dailyLogs.reduce((sum, log) => sum + (log.energyLevel || 5), 0) / dailyLogs.length
+        : 5;
+
+      const aiResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a fitness coach helping someone who just completed a workout decide if additional activity would be beneficial or not.
+
+Consider these factors:
+- User's age: ${profile?.age || "unknown"}
+- Current phase: ${profile?.currentPhase || "recomp"}
+- Recent workout frequency (last 7 days): ${recentWorkouts} workouts
+- Average sleep: ${avgSleep.toFixed(1)} hours
+- Average energy: ${avgEnergy.toFixed(1)}/10
+- Today's completed workout: ${completedWorkout}
+- Duration: ${durationMinutes} minutes
+- Total volume lifted: ${totalVolume} lbs
+
+Return a JSON object with this exact structure:
+{
+  "recommended": boolean (true if additional activity would benefit them, false if they should rest),
+  "message": "A personalized message explaining why (1-2 sentences)",
+  "suggestions": [
+    {
+      "type": "cardio|mobility|active_recovery",
+      "name": "Activity name",
+      "duration": "10-15 min",
+      "description": "Brief description of why this would help"
+    }
+  ]
+}
+
+If recommended is false, suggestions should be an empty array.
+If recommended is true, provide 2-3 light complementary activities (never more intense weightlifting).
+
+Be conservative - prioritize recovery for people 40+. Only suggest additional work if:
+- The completed workout was relatively short (<45 min)
+- They've had adequate rest recently
+- Energy levels are good
+- The suggestions are light (walking, stretching, light cardio)`
+          },
+          {
+            role: "user",
+            content: `I just completed: ${completedWorkout}
+Exercises: ${completedExercises?.join(", ") || "various exercises"}
+Duration: ${durationMinutes} minutes
+Volume: ${totalVolume} lbs
+
+Should I do any additional activity today, or should I focus on recovery?`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      });
+
+      const result = JSON.parse(aiResponse.choices[0].message.content || "{}");
+
+      res.json({
+        recommended: result.recommended || false,
+        message: result.message || "Great workout! Focus on recovery and nutrition now.",
+        suggestions: result.suggestions || [],
+      });
+    } catch (error) {
+      console.error("Error generating additional workout recommendation:", error);
+      res.status(500).json({
+        recommended: false,
+        message: "Great workout! Take some time to recover.",
+        suggestions: []
+      });
+    }
+  });
+
   // ==================== AI Meal Suggestions ====================
 
   app.get("/api/meal-suggestions", isAuthenticated, async (req: Request, res: Response) => {
