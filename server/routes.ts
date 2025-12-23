@@ -1263,6 +1263,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       const today = format(new Date(), "yyyy-MM-dd");
       const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
       const weekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
+      const yearAgo = format(subDays(new Date(), 365), "yyyy-MM-dd");
 
       // Get today's log
       const todayLog = await storage.getDailyLog(userId, today);
@@ -1281,6 +1282,11 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Get active health notes for context
       const healthNotes = await storage.getRecentHealthNotes(userId, 14);
 
+      // Get full year history for comprehensive AI analysis
+      const yearlyDailyLogs = await storage.getDailyLogs(userId, yearAgo, today);
+      const yearlyExerciseLogs = await storage.getExerciseLogsRange(userId, yearAgo, today);
+      const yearlyFoodEntries = await storage.getFoodEntriesRange(userId, yearAgo, today);
+
       // Generate AI guidance
       const guidance = await generateDailyGuidance({
         profile,
@@ -1293,6 +1299,9 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         recentExerciseLogs,
         healthNotes,
         currentHour: new Date().getHours(),
+        yearlyDailyLogs,
+        yearlyExerciseLogs,
+        yearlyFoodEntries,
       });
 
       res.json(guidance);

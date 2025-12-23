@@ -78,6 +78,215 @@ interface GuidanceContext {
   recentExerciseLogs: ExerciseLog[];
   healthNotes: HealthNote[];
   currentHour: number;
+  // New: Full year history for comprehensive analysis
+  yearlyDailyLogs?: DailyLog[];
+  yearlyExerciseLogs?: ExerciseLog[];
+  yearlyFoodEntries?: FoodEntry[];
+}
+
+// Summarize yearly history for AI context (keeps token count reasonable)
+interface YearlyHistorySummary {
+  totalDaysLogged: number;
+  totalWorkouts: number;
+  monthlyBreakdown: Array<{
+    month: string;
+    daysLogged: number;
+    workouts: number;
+    avgCalories: number;
+    avgProtein: number;
+    avgSleep: number;
+    avgWeight: number | null;
+  }>;
+  weightHistory: Array<{ date: string; weight: number }>;
+  bestStreak: number;
+  currentStreak: number;
+  mostCommonWorkoutTypes: string[];
+  averageWorkoutsPerWeek: number;
+  calorieAdherenceRate: number; // % of days within 10% of target
+  proteinAdherenceRate: number;
+  overallProgress: {
+    startWeight: number | null;
+    currentWeight: number | null;
+    weightChange: number | null;
+    daysTracking: number;
+  };
+}
+
+function summarizeYearlyHistory(
+  dailyLogs: DailyLog[],
+  exerciseLogs: ExerciseLog[],
+  foodEntries: FoodEntry[],
+  profile: UserProfile
+): YearlyHistorySummary {
+  // Group by month
+  const monthlyData = new Map<string, {
+    daysLogged: Set<string>;
+    workouts: number;
+    totalCalories: number;
+    totalProtein: number;
+    totalSleep: number;
+    sleepDays: number;
+    weights: number[];
+  }>();
+
+  // Process daily logs
+  for (const log of dailyLogs) {
+    const monthKey = log.logDate.substring(0, 7); // YYYY-MM
+    if (!monthlyData.has(monthKey)) {
+      monthlyData.set(monthKey, {
+        daysLogged: new Set(),
+        workouts: 0,
+        totalCalories: 0,
+        totalProtein: 0,
+        totalSleep: 0,
+        sleepDays: 0,
+        weights: [],
+      });
+    }
+    const month = monthlyData.get(monthKey)!;
+    month.daysLogged.add(log.logDate);
+    if (log.caloriesConsumed) month.totalCalories += log.caloriesConsumed;
+    if (log.proteinGrams) month.totalProtein += log.proteinGrams;
+    if (log.sleepHours) {
+      month.totalSleep += log.sleepHours;
+      month.sleepDays++;
+    }
+    if (log.weightKg) month.weights.push(log.weightKg);
+  }
+
+  // Count workouts per month from exercise logs
+  const workoutDates = new Set<string>();
+  const workoutTypes: string[] = [];
+  for (const log of exerciseLogs) {
+    const monthKey = log.logDate.substring(0, 7);
+    const dateKey = log.logDate;
+
+    if (!workoutDates.has(dateKey)) {
+      workoutDates.add(dateKey);
+      const month = monthlyData.get(monthKey);
+      if (month) month.workouts++;
+    }
+    if (log.exerciseName) workoutTypes.push(log.exerciseName);
+  }
+
+  // Calculate monthly breakdown
+  const monthlyBreakdown = Array.from(monthlyData.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, data]) => ({
+      month,
+      daysLogged: data.daysLogged.size,
+      workouts: data.workouts,
+      avgCalories: data.daysLogged.size > 0 ? Math.round(data.totalCalories / data.daysLogged.size) : 0,
+      avgProtein: data.daysLogged.size > 0 ? Math.round(data.totalProtein / data.daysLogged.size) : 0,
+      avgSleep: data.sleepDays > 0 ? Math.round((data.totalSleep / data.sleepDays) * 10) / 10 : 0,
+      avgWeight: data.weights.length > 0 ? Math.round((data.weights.reduce((a, b) => a + b, 0) / data.weights.length) * 10) / 10 : null,
+    }));
+
+  // Calculate weight history (sample key points)
+  const weightHistory: Array<{ date: string; weight: number }> = [];
+  const logsWithWeight = dailyLogs.filter(l => l.weightKg).sort((a, b) => a.logDate.localeCompare(b.logDate));
+  if (logsWithWeight.length > 0) {
+    // First, last, and sample every ~30 days
+    const interval = Math.max(1, Math.floor(logsWithWeight.length / 12));
+    for (let i = 0; i < logsWithWeight.length; i += interval) {
+      weightHistory.push({ date: logsWithWeight[i].logDate, weight: logsWithWeight[i].weightKg! });
+    }
+    // Ensure last entry is included
+    const lastLog = logsWithWeight[logsWithWeight.length - 1];
+    if (!weightHistory.find(w => w.date === lastLog.logDate)) {
+      weightHistory.push({ date: lastLog.logDate, weight: lastLog.weightKg! });
+    }
+  }
+
+  // Calculate streaks
+  const allDates = Array.from(new Set(dailyLogs.map(l => l.logDate))).sort();
+  let currentStreak = 0;
+  let bestStreak = 0;
+  let tempStreak = 0;
+  const today = format(new Date(), "yyyy-MM-dd");
+
+  for (let i = 0; i < allDates.length; i++) {
+    if (i === 0) {
+      tempStreak = 1;
+    } else {
+      const prevDate = new Date(allDates[i - 1]);
+      const currDate = new Date(allDates[i]);
+      const diffDays = Math.floor((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays === 1) {
+        tempStreak++;
+      } else {
+        tempStreak = 1;
+      }
+    }
+    bestStreak = Math.max(bestStreak, tempStreak);
+
+    // Check if this streak includes today
+    if (allDates[i] === today) {
+      currentStreak = tempStreak;
+    }
+  }
+
+  // Most common workout types
+  const typeCounts = new Map<string, number>();
+  for (const type of workoutTypes) {
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+  }
+  const mostCommonWorkoutTypes = Array.from(typeCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([type]) => type);
+
+  // Average workouts per week
+  const firstDate = allDates.length > 0 ? new Date(allDates[0]) : new Date();
+  const weeksTracking = Math.max(1, Math.ceil((new Date().getTime() - firstDate.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+  const averageWorkoutsPerWeek = Math.round((workoutDates.size / weeksTracking) * 10) / 10;
+
+  // Adherence rates
+  const targetCalories = profile.targetCalories || 2000;
+  const targetProtein = profile.proteinGrams || 150;
+  let calorieAdherentDays = 0;
+  let proteinAdherentDays = 0;
+
+  for (const log of dailyLogs) {
+    if (log.caloriesConsumed) {
+      if (Math.abs(log.caloriesConsumed - targetCalories) / targetCalories <= 0.1) {
+        calorieAdherentDays++;
+      }
+    }
+    if (log.proteinGrams) {
+      if (log.proteinGrams >= targetProtein * 0.9) {
+        proteinAdherentDays++;
+      }
+    }
+  }
+
+  const totalDaysLogged = new Set(dailyLogs.map(l => l.logDate)).size;
+  const calorieAdherenceRate = totalDaysLogged > 0 ? Math.round((calorieAdherentDays / totalDaysLogged) * 100) : 0;
+  const proteinAdherenceRate = totalDaysLogged > 0 ? Math.round((proteinAdherentDays / totalDaysLogged) * 100) : 0;
+
+  // Overall progress
+  const startWeight = logsWithWeight.length > 0 ? logsWithWeight[0].weightKg : null;
+  const currentWeight = logsWithWeight.length > 0 ? logsWithWeight[logsWithWeight.length - 1].weightKg : null;
+  const weightChange = startWeight && currentWeight ? Math.round((currentWeight - startWeight) * 10) / 10 : null;
+
+  return {
+    totalDaysLogged,
+    totalWorkouts: workoutDates.size,
+    monthlyBreakdown,
+    weightHistory,
+    bestStreak,
+    currentStreak,
+    mostCommonWorkoutTypes,
+    averageWorkoutsPerWeek,
+    calorieAdherenceRate,
+    proteinAdherenceRate,
+    overallProgress: {
+      startWeight,
+      currentWeight,
+      weightChange,
+      daysTracking: allDates.length > 0 ? Math.ceil((new Date().getTime() - new Date(allDates[0]).getTime()) / (24 * 60 * 60 * 1000)) : 0,
+    },
+  };
 }
 
 export async function generateDailyGuidance(context: GuidanceContext): Promise<DailyGuidance> {
@@ -92,7 +301,15 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
     recentExerciseLogs,
     healthNotes,
     currentHour,
+    yearlyDailyLogs,
+    yearlyExerciseLogs,
+    yearlyFoodEntries,
   } = context;
+
+  // Generate yearly history summary if data is available
+  const yearlyHistory = yearlyDailyLogs && yearlyExerciseLogs
+    ? summarizeYearlyHistory(yearlyDailyLogs, yearlyExerciseLogs, yearlyFoodEntries || [], profile)
+    : null;
 
   // Calculate today's logged nutrition from food entries
   const todayNutrition = {
@@ -198,6 +415,23 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
       category: note.category,
       createdAt: note.createdAt?.toISOString?.() || note.createdAt,
     })),
+    // Full year history summary for comprehensive analysis
+    yearlyHistory: yearlyHistory ? {
+      totalDaysLogged: yearlyHistory.totalDaysLogged,
+      totalWorkouts: yearlyHistory.totalWorkouts,
+      daysTracking: yearlyHistory.overallProgress.daysTracking,
+      currentStreak: yearlyHistory.currentStreak,
+      bestStreak: yearlyHistory.bestStreak,
+      averageWorkoutsPerWeek: yearlyHistory.averageWorkoutsPerWeek,
+      calorieAdherenceRate: `${yearlyHistory.calorieAdherenceRate}%`,
+      proteinAdherenceRate: `${yearlyHistory.proteinAdherenceRate}%`,
+      mostCommonWorkoutTypes: yearlyHistory.mostCommonWorkoutTypes,
+      weightProgress: yearlyHistory.overallProgress.weightChange !== null
+        ? `${yearlyHistory.overallProgress.weightChange > 0 ? '+' : ''}${yearlyHistory.overallProgress.weightChange} lbs over ${yearlyHistory.overallProgress.daysTracking} days`
+        : null,
+      weightHistory: yearlyHistory.weightHistory,
+      monthlyBreakdown: yearlyHistory.monthlyBreakdown,
+    } : null,
   };
 
   const systemPrompt = `You are an expert health coach AI generating a HIGHLY PERSONALIZED daily briefing for a user.
@@ -301,7 +535,21 @@ PROACTIVE INSIGHTS (include 1-3):
 - Sleep optimization tips based on their patterns
 - Nutrition timing recommendations
 - Recovery advice based on recent activity
-- Lifestyle tips (stress management, hydration, etc.)`;
+- Lifestyle tips (stress management, hydration, etc.)
+
+YEARLY HISTORY ANALYSIS:
+The user's yearlyHistory contains their FULL tracking history (up to 1 year). Use this to:
+1. Reference their long-term progress and trends in your messages
+2. Acknowledge milestones (e.g., "You've logged ${yearlyHistory?.totalDaysLogged || 0} days total!")
+3. Compare current performance to their historical averages
+4. Note weight trends over time if available
+5. Reference their best streak to motivate them
+6. Identify patterns in their monthly data (e.g., "You tend to work out more on weekdays")
+7. Use their calorie/protein adherence rates to give context-aware feedback
+8. Consider their most common workout types when making recommendations
+
+If the user has been tracking for a while, make them feel seen by acknowledging their journey.
+If they're new, welcome them and set expectations appropriately.`;
 
   try {
     const response = await openai.chat.completions.create({
