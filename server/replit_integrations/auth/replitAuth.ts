@@ -48,7 +48,6 @@ function updateUserSession(
   user.claims = tokens.claims();
   user.access_token = tokens.access_token;
   user.refresh_token = tokens.refresh_token;
-  user.id_token = tokens.id_token; // Save for OIDC logout
   user.expires_at = user.claims?.exp;
 }
 
@@ -126,7 +125,7 @@ export async function setupAuth(app: Express) {
   app.get("/api/login", (req, res, next) => {
     ensureStrategy(req.hostname);
     passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "select_account consent",
+      prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
   });
@@ -140,10 +139,6 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/logout", (req, res) => {
-    // Get the id_token for proper OIDC logout
-    const user = req.user as any;
-    const idToken = user?.id_token;
-
     req.logout(() => {
       // Destroy the session completely
       req.session.destroy((err) => {
@@ -158,18 +153,18 @@ export async function setupAuth(app: Express) {
           secure: true,
         });
 
-        // Build end session URL with id_token_hint for proper OIDC logout
-        const endSessionParams: Record<string, string> = {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `https://${req.hostname}`,
-        };
-
-        // Include id_token_hint if available for better logout
-        if (idToken) {
-          endSessionParams.id_token_hint = idToken;
+        // Redirect to Replit end session URL
+        try {
+          const endSessionUrl = client.buildEndSessionUrl(config, {
+            client_id: process.env.REPL_ID!,
+            post_logout_redirect_uri: `https://${req.hostname}`,
+          });
+          res.redirect(endSessionUrl.href);
+        } catch (error) {
+          // If end session URL fails, just redirect to home
+          console.error("Error building end session URL:", error);
+          res.redirect("/");
         }
-
-        res.redirect(client.buildEndSessionUrl(config, endSessionParams).href);
       });
     });
   });
