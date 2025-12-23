@@ -736,18 +736,27 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       const entry = await storage.createFoodEntry(data);
 
-      // Check and trigger first_food_log milestone
-      const existingMilestone = await storage.getUserMilestone(userId, "first_food_log");
-      if (!existingMilestone) {
-        await storage.createUserMilestone({
-          userId,
-          milestoneKey: "first_food_log",
-          data: { foodName: entry.foodName, calories: entry.calories },
-        });
+      // Check and trigger first_food_log milestone (don't block on errors)
+      try {
+        const existingMilestone = await storage.getUserMilestone(userId, "first_food_log");
+        if (!existingMilestone) {
+          await storage.createUserMilestone({
+            userId,
+            milestoneKey: "first_food_log",
+            data: { foodName: entry.foodName, calories: entry.calories },
+          });
+          console.log(`Created first_food_log milestone for user ${userId}`);
+        }
+      } catch (milestoneError) {
+        console.error("Error creating first_food_log milestone:", milestoneError);
       }
 
-      // Check for streak milestones
-      await checkStreakMilestones(userId);
+      // Check for streak milestones (don't block on errors)
+      try {
+        await checkStreakMilestones(userId);
+      } catch (streakError) {
+        console.error("Error checking streak milestones:", streakError);
+      }
 
       res.json(entry);
     } catch (error) {
