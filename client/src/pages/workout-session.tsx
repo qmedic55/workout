@@ -507,14 +507,25 @@ export default function WorkoutSession() {
       for (const exercise of data.exercises) {
         if (exercise.skipped || exercise.sets.length === 0) continue;
 
-        await apiRequest("POST", "/api/exercise-logs", {
+        const exerciseLogData = {
           exerciseName: exercise.exerciseName,
           logDate: today,
           exerciseOrder: exercise.exerciseOrder,
           completedSets: exercise.sets.length,
           setDetails: exercise.sets,
           notes: `Completed via AI-guided session: ${data.workoutTitle}`,
-        });
+          skipped: false,
+          prescribedSets: null,
+          prescribedReps: null,
+          prescribedRir: null,
+        };
+
+        const response = await apiRequest("POST", "/api/exercise-logs", exerciseLogData);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+          console.error("Failed to save exercise:", exerciseLogData, errorData);
+          throw new Error(errorData.error || "Failed to save exercise");
+        }
       }
 
       // Update daily log to mark workout as done
