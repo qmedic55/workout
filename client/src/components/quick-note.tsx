@@ -1,66 +1,38 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useLocation } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  MessageSquarePlus,
   Send,
-  X,
-  Clock,
   Loader2,
   Sparkles,
-  AlertCircle,
-  Dumbbell,
-  Moon,
-  Brain,
-  Utensils,
+  Bot,
+  User,
+  ChevronRight,
+  MessageCircle,
 } from "lucide-react";
+import type { ChatMessage } from "@shared/schema";
 
-interface HealthNote {
-  id: string;
-  content: string;
-  category: string | null;
-  isActive: boolean;
-  expiresAt: string | null;
-  createdAt: string;
-}
-
-function getCategoryIcon(category: string | null) {
-  switch (category) {
-    case "injury":
-      return <AlertCircle className="h-3 w-3" />;
-    case "nutrition":
-      return <Utensils className="h-3 w-3" />;
-    case "sleep":
-      return <Moon className="h-3 w-3" />;
-    case "stress":
-      return <Brain className="h-3 w-3" />;
-    case "training":
-      return <Dumbbell className="h-3 w-3" />;
-    default:
-      return <MessageSquarePlus className="h-3 w-3" />;
+// Truncate long AI responses for the mini-chat view
+function truncateResponse(text: string, maxLength: number = 200): { text: string; truncated: boolean } {
+  if (text.length <= maxLength) {
+    return { text, truncated: false };
   }
-}
+  // Try to cut at a sentence boundary
+  const truncated = text.slice(0, maxLength);
+  const lastPeriod = truncated.lastIndexOf(".");
+  const lastQuestion = truncated.lastIndexOf("?");
+  const lastExclaim = truncated.lastIndexOf("!");
+  const cutPoint = Math.max(lastPeriod, lastQuestion, lastExclaim);
 
-function getCategoryColor(category: string | null) {
-  switch (category) {
-    case "injury":
-      return "bg-red-100 text-red-800 border-red-200";
-    case "nutrition":
-      return "bg-orange-100 text-orange-800 border-orange-200";
-    case "sleep":
-      return "bg-indigo-100 text-indigo-800 border-indigo-200";
-    case "stress":
-      return "bg-purple-100 text-purple-800 border-purple-200";
-    case "training":
-      return "bg-green-100 text-green-800 border-green-200";
-    default:
-      return "bg-gray-100 text-gray-800 border-gray-200";
+  if (cutPoint > maxLength * 0.5) {
+    return { text: text.slice(0, cutPoint + 1), truncated: true };
   }
+  return { text: truncated + "...", truncated: true };
 }
 
 function formatTimeAgo(dateString: string): string {
@@ -69,162 +41,111 @@ function formatTimeAgo(dateString: string): string {
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
 
   if (diffMins < 1) return "just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return "yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString();
 }
 
 export function QuickNote() {
-  const [note, setNote] = useState("");
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [message, setMessage] = useState("");
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  // Fetch recent health notes (last 5)
-  const { data: recentNotes = [] } = useQuery<HealthNote[]>({
-    queryKey: ["/api/health-notes"],
-    select: (data) => data.slice(0, 5),
+  // Fetch recent chat messages (last 4 for mini view)
+  const { data: recentMessages = [] } = useQuery<ChatMessage[]>({
+    queryKey: ["/api/chat/messages"],
+    select: (data) => data.slice(-4), // Last 4 messages
   });
 
-  // Save note mutation (with comprehensive AI parsing for food, workouts, sleep, etc.)
-  const saveMutation = useMutation({
+  // Send message mutation - uses the same endpoint as full chat
+  const sendMutation = useMutation({
     mutationFn: async (content: string) => {
-      const response = await apiRequest("POST", "/api/health-notes", {
-        content,
-        // AI will categorize, but we could add a simple detection here
-        category: detectCategory(content),
-        // Short-term notes expire in 7 days, ongoing issues don't expire
-        expiresInDays: isShortTermNote(content) ? 7 : undefined,
-      });
-      return response.json() as Promise<{
-        note: HealthNote | null;
-        foodEntries: Array<{ id: string; foodName: string; calories: number }>;
-        foodsLogged: number;
-        exerciseLogs: Array<{ id: string; exerciseName: string }>;
-        exercisesLogged: number;
-        dailyLogUpdated: boolean;
-        dailyLogChanges: string[];
-        workoutCompleted: boolean;
-        workoutType?: string;
-      }>;
+      const response = await apiRequest("POST", "/api/chat/send", { content });
+      return response.json();
     },
     onSuccess: (data) => {
-      setNote("");
-      setIsExpanded(false);
-      // Invalidate all related queries - use predicate to match partial keys
-      queryClient.invalidateQueries({ queryKey: ["/api/health-notes"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
-      // Match all food-entries queries (including those with date param like ["/api/food-entries", "2024-01-15"])
-      queryClient.invalidateQueries({ predicate: (query) =>
-        Array.isArray(query.queryKey) && query.queryKey[0] === "/api/food-entries"
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
-      // Match all exercise-logs queries
-      queryClient.invalidateQueries({ predicate: (query) =>
-        Array.isArray(query.queryKey) && query.queryKey[0] === "/api/exercise-logs"
-      });
+      setMessage("");
+      // Invalidate chat messages to show new response
+      queryClient.invalidateQueries({ queryKey: ["/api/chat/messages"] });
 
-      // Build a comprehensive description of what was logged
-      const parts: string[] = [];
-
-      if (data.foodsLogged > 0) {
-        const foodNames = data.foodEntries.map((f) => f.foodName).join(", ");
-        const totalCals = data.foodEntries.reduce((sum, f) => sum + (f.calories || 0), 0);
-        parts.push(`${foodNames} (${totalCals} cal)`);
+      // If AI applied changes to profile, refresh profile data
+      if (data.appliedChanges && data.appliedChanges.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       }
 
-      if (data.exercisesLogged > 0) {
-        const exerciseNames = data.exerciseLogs.map((e) => e.exerciseName).join(", ");
-        parts.push(`Exercises: ${exerciseNames}`);
-      }
+      // If food/exercise/biofeedback was logged, invalidate related queries
+      if (data.loggedData) {
+        if (data.loggedData.foodsLogged > 0) {
+          queryClient.invalidateQueries({ predicate: (query) =>
+            Array.isArray(query.queryKey) && query.queryKey[0] === "/api/food-entries"
+          });
+        }
+        if (data.loggedData.exercisesLogged > 0) {
+          queryClient.invalidateQueries({ predicate: (query) =>
+            Array.isArray(query.queryKey) && query.queryKey[0] === "/api/exercise-logs"
+          });
+        }
+        if (data.loggedData.dailyLogUpdated || data.loggedData.foodsLogged > 0 || data.loggedData.exercisesLogged > 0) {
+          queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
+        }
 
-      if (data.dailyLogChanges.length > 0) {
-        parts.push(data.dailyLogChanges.join(", "));
-      }
-
-      if (data.note) {
-        parts.push("Note saved for AI coach");
-      }
-
-      // Determine the title based on what was logged
-      let title = "Logged";
-      if (data.foodsLogged > 0 && data.exercisesLogged > 0) {
-        title = "Food & workout logged";
-      } else if (data.foodsLogged > 0) {
-        title = "Food logged";
-      } else if (data.exercisesLogged > 0 || data.workoutCompleted) {
-        title = "Workout logged";
-      } else if (data.dailyLogUpdated) {
-        title = "Data updated";
-      } else if (data.note) {
-        title = "Note saved";
-      }
-
-      if (parts.length > 0) {
-        toast({
-          title,
-          description: parts.join(" • "),
-        });
+        // Show toast for what was logged
+        const parts: string[] = [];
+        if (data.loggedData.foodsLogged > 0) {
+          parts.push(`${data.loggedData.foodsLogged} food item${data.loggedData.foodsLogged > 1 ? "s" : ""}`);
+        }
+        if (data.loggedData.exercisesLogged > 0) {
+          parts.push(`${data.loggedData.exercisesLogged} exercise${data.loggedData.exercisesLogged > 1 ? "s" : ""}`);
+        }
+        if (data.loggedData.dailyLogChanges?.length > 0) {
+          parts.push(data.loggedData.dailyLogChanges.join(", "));
+        }
+        if (parts.length > 0) {
+          toast({
+            title: "Logged",
+            description: parts.join(" • "),
+          });
+        }
       }
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to save",
+        title: "Failed to send",
         description: error.message,
         variant: "destructive",
       });
     },
   });
 
-  // Delete note mutation
-  const deleteMutation = useMutation({
-    mutationFn: async (noteId: string) => {
-      await apiRequest("DELETE", `/api/health-notes/${noteId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/health-notes"] });
-    },
-  });
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (note.trim()) {
-      saveMutation.mutate(note.trim());
+    if (message.trim() && !sendMutation.isPending) {
+      sendMutation.mutate(message.trim());
     }
   };
 
-  // Simple category detection based on keywords
-  function detectCategory(text: string): string {
-    const lower = text.toLowerCase();
-    if (lower.includes("hurt") || lower.includes("injury") || lower.includes("pain") || lower.includes("sore")) {
-      return "injury";
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
     }
-    if (lower.includes("ate") || lower.includes("food") || lower.includes("eating") || lower.includes("party") || lower.includes("meal")) {
-      return "nutrition";
-    }
-    if (lower.includes("sleep") || lower.includes("tired") || lower.includes("dream") || lower.includes("insomnia") || lower.includes("rest")) {
-      return "sleep";
-    }
-    if (lower.includes("stress") || lower.includes("anxious") || lower.includes("worried") || lower.includes("mental")) {
-      return "stress";
-    }
-    if (lower.includes("workout") || lower.includes("exercise") || lower.includes("training") || lower.includes("gym")) {
-      return "training";
-    }
-    return "general";
-  }
+  };
 
-  // Check if this is likely a short-term note (one-time event vs ongoing issue)
-  function isShortTermNote(text: string): boolean {
-    const lower = text.toLowerCase();
-    // One-time events: parties, specific meals, single bad nights
-    const shortTermKeywords = ["yesterday", "last night", "party", "ate too much", "didn't sleep", "today"];
-    return shortTermKeywords.some((kw) => lower.includes(kw));
-  }
+  const goToFullChat = () => {
+    setLocation("/chat");
+  };
+
+  // Get the last assistant message for display
+  const lastAssistantMessage = recentMessages
+    .filter(m => m.role === "assistant")
+    .slice(-1)[0];
+
+  const lastUserMessage = recentMessages
+    .filter(m => m.role === "user")
+    .slice(-1)[0];
 
   return (
     <Card className="bg-gradient-to-r from-muted/30 to-muted/50">
@@ -232,110 +153,113 @@ export function QuickNote() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <CardTitle className="text-sm">Tell Your Coach</CardTitle>
+            <CardTitle className="text-sm">AI Coach</CardTitle>
           </div>
-          {recentNotes.length > 0 && (
-            <Badge variant="secondary" className="text-xs">
-              {recentNotes.length} recent note{recentNotes.length !== 1 ? "s" : ""}
-            </Badge>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs h-7 px-2"
+            onClick={goToFullChat}
+          >
+            Full Chat
+            <ChevronRight className="h-3 w-3 ml-1" />
+          </Button>
         </div>
-        <CardDescription className="text-xs">
-          Log anything: food, workouts, sleep, mood - AI understands natural language
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* Input Form */}
-        <form onSubmit={handleSubmit} className="space-y-2">
-          {isExpanded ? (
-            <>
-              <Textarea
-                placeholder="e.g., 'Had eggs for breakfast, then did 3x10 bench press at 185lbs' or 'Slept 7 hours, feeling great' or 'My shoulder is hurting'"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="min-h-[80px] text-sm resize-none"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={!note.trim() || saveMutation.isPending}
-                  className="flex-1"
-                >
-                  {saveMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Send className="h-3 w-3 mr-1" />
-                      Save Note
-                    </>
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setIsExpanded(false);
-                    setNote("");
-                  }}
-                >
-                  Cancel
-                </Button>
+        {/* Recent conversation preview */}
+        {(lastUserMessage || lastAssistantMessage) && (
+          <div className="space-y-2 max-h-[180px] overflow-y-auto">
+            {lastUserMessage && (
+              <div className="flex items-start gap-2">
+                <div className="h-6 w-6 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                  <User className="h-3 w-3" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground line-clamp-2">
+                    {lastUserMessage.content}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground/60">
+                    {formatTimeAgo(lastUserMessage.createdAt?.toString() || new Date().toISOString())}
+                  </span>
+                </div>
               </div>
-            </>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full justify-start text-muted-foreground"
-              onClick={() => setIsExpanded(true)}
-            >
-              <MessageSquarePlus className="h-4 w-4 mr-2" />
-              Add a note for your AI coach...
-            </Button>
-          )}
+            )}
+            {lastAssistantMessage && (
+              <div className="flex items-start gap-2">
+                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Bot className="h-3 w-3 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  {(() => {
+                    const { text, truncated } = truncateResponse(lastAssistantMessage.content);
+                    return (
+                      <>
+                        <p className="text-xs text-foreground">
+                          {text}
+                        </p>
+                        {truncated && (
+                          <button
+                            className="text-[10px] text-primary hover:underline"
+                            onClick={goToFullChat}
+                          >
+                            See full response →
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Typing indicator when AI is responding */}
+        {sendMutation.isPending && (
+          <div className="flex items-start gap-2">
+            <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <Bot className="h-3 w-3 text-primary" />
+            </div>
+            <div className="flex items-center gap-1 py-2">
+              <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+          </div>
+        )}
+
+        {/* Input form */}
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <Textarea
+            placeholder="Log food, ask questions, share how you're feeling..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="min-h-[60px] max-h-[100px] text-sm resize-none flex-1"
+            disabled={sendMutation.isPending}
+          />
+          <Button
+            type="submit"
+            size="icon"
+            disabled={!message.trim() || sendMutation.isPending}
+            className="shrink-0 self-end h-9 w-9"
+          >
+            {sendMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
         </form>
 
-        {/* Recent Notes */}
-        {recentNotes.length > 0 && (
-          <div className="space-y-2 pt-2 border-t">
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              Recent notes
+        {/* Empty state - encourage first message */}
+        {!lastUserMessage && !lastAssistantMessage && !sendMutation.isPending && (
+          <div className="text-center py-2">
+            <MessageCircle className="h-8 w-8 mx-auto text-muted-foreground/30 mb-2" />
+            <p className="text-xs text-muted-foreground">
+              Tell me what you ate, how you slept, or ask anything about your health journey
             </p>
-            <div className="space-y-1.5">
-              {recentNotes.map((n) => (
-                <div
-                  key={n.id}
-                  className="flex items-start gap-2 text-xs bg-background/50 rounded-md p-2 group"
-                >
-                  <span
-                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] ${getCategoryColor(n.category)}`}
-                  >
-                    {getCategoryIcon(n.category)}
-                    {n.category || "general"}
-                  </span>
-                  <span className="flex-1 text-muted-foreground line-clamp-2">
-                    {n.content}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-muted-foreground/60">
-                      {formatTimeAgo(n.createdAt)}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => deleteMutation.mutate(n.id)}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
       </CardContent>
