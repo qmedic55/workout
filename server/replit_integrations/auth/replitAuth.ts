@@ -19,16 +19,25 @@ const getOidcConfig = memoize(
   { maxAge: 3600 * 1000 }
 );
 
+// Singleton session store to prevent multiple connections
+let sessionMiddleware: ReturnType<typeof session> | null = null;
+
 export function getSession() {
+  if (sessionMiddleware) {
+    return sessionMiddleware;
+  }
+
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
+    createTableIfMissing: true, // Auto-create sessions table if it doesn't exist
     ttl: sessionTtl,
     tableName: "sessions",
+    pruneSessionInterval: 60 * 15, // Prune expired sessions every 15 minutes
   });
-  return session({
+
+  sessionMiddleware = session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false,
@@ -36,9 +45,12 @@ export function getSession() {
     cookie: {
       httpOnly: true,
       secure: true,
+      sameSite: "lax", // Helps with cross-site requests
       maxAge: sessionTtl,
     },
   });
+
+  return sessionMiddleware;
 }
 
 function updateUserSession(
