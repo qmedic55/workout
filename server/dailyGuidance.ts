@@ -6,8 +6,13 @@
  */
 
 import OpenAI from "openai";
-import type { UserProfile, DailyLog, FoodEntry, ExerciseLog, OnboardingAssessment, HealthNote } from "@shared/schema";
+import type { UserProfile, DailyLog, FoodEntry, ExerciseLog, OnboardingAssessment, HealthNote, Goal } from "@shared/schema";
 import { format, subDays } from "date-fns";
+import {
+  needsThreadInitialization,
+  initializeUserThread,
+  generateDailyGuidanceWithThread,
+} from "./assistantService";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -633,5 +638,183 @@ If they're new, welcome them and set expectations appropriately.`;
       motivationalMessage: "Every small step counts toward your goals. You've got this!",
       generatedAt: new Date().toISOString(),
     };
+  }
+}
+
+/**
+ * Extended context for assistant-based guidance generation
+ */
+interface AssistantGuidanceContext extends GuidanceContext {
+  userId: string;
+  goals: Goal[];
+}
+
+/**
+ * Generate daily guidance using OpenAI Assistants API with persistent threads.
+ * This version remembers the user's full history in the thread, so we only need
+ * to send today's data on subsequent calls.
+ */
+export async function generateDailyGuidanceWithAssistant(
+  context: AssistantGuidanceContext
+): Promise<DailyGuidance> {
+  const {
+    userId,
+    profile,
+    assessment,
+    todayLog,
+    yesterdayLog,
+    recentLogs,
+    todayFoodEntries,
+    yesterdayFoodEntries,
+    recentExerciseLogs,
+    healthNotes,
+    currentHour,
+    yearlyDailyLogs,
+    yearlyExerciseLogs,
+    yearlyFoodEntries,
+    goals,
+  } = context;
+
+  try {
+    // Check if we need to initialize the thread with full context
+    const needsInit = await needsThreadInitialization(userId);
+
+    if (needsInit) {
+      console.log(`Initializing assistant thread for user ${userId}...`);
+
+      // Generate yearly history summary for initial context
+      const yearlyHistory = yearlyDailyLogs && yearlyExerciseLogs
+        ? summarizeYearlyHistory(yearlyDailyLogs, yearlyExerciseLogs, yearlyFoodEntries || [], profile)
+        : null;
+
+      // Initialize with full context
+      await initializeUserThread(userId, {
+        profile: {
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          age: profile.age,
+          sex: profile.sex,
+          heightCm: profile.heightCm,
+          currentWeightKg: profile.currentWeightKg,
+          targetWeightKg: profile.targetWeightKg,
+          currentPhase: profile.currentPhase,
+          targetCalories: profile.targetCalories,
+          proteinGrams: profile.proteinGrams,
+          carbsGrams: profile.carbsGrams,
+          fatGrams: profile.fatGrams,
+          dailyStepsTarget: profile.dailyStepsTarget,
+          coachingTone: profile.coachingTone,
+          hasHealthConditions: profile.hasHealthConditions,
+          healthConditionsNotes: profile.healthConditionsNotes,
+        },
+        assessment: assessment ? {
+          hasBeenDietingRecently: assessment.hasBeenDietingRecently,
+          dietingDurationMonths: assessment.dietingDurationMonths,
+          relationshipWithFood: assessment.relationshipWithFood,
+          doesResistanceTraining: assessment.doesResistanceTraining,
+          resistanceTrainingFrequency: assessment.resistanceTrainingFrequency,
+          averageDailySteps: assessment.averageDailySteps,
+          physicalLimitations: assessment.physicalLimitations,
+          activityLevel: assessment.activityLevel,
+          averageSleepHours: assessment.averageSleepHours,
+          sleepQuality: assessment.sleepQuality,
+          stressLevel: assessment.stressLevel,
+          metabolicState: assessment.metabolicState,
+          recommendedStartPhase: assessment.recommendedStartPhase,
+        } : null,
+        yearlyHistory: yearlyHistory ? {
+          totalDaysLogged: yearlyHistory.totalDaysLogged,
+          totalWorkouts: yearlyHistory.totalWorkouts,
+          daysTracking: yearlyHistory.overallProgress.daysTracking,
+          currentStreak: yearlyHistory.currentStreak,
+          bestStreak: yearlyHistory.bestStreak,
+          averageWorkoutsPerWeek: yearlyHistory.averageWorkoutsPerWeek,
+          calorieAdherenceRate: yearlyHistory.calorieAdherenceRate,
+          proteinAdherenceRate: yearlyHistory.proteinAdherenceRate,
+          mostCommonWorkoutTypes: yearlyHistory.mostCommonWorkoutTypes,
+          weightProgress: yearlyHistory.overallProgress,
+          monthlyBreakdown: yearlyHistory.monthlyBreakdown,
+        } : null,
+        healthNotes: healthNotes.map(n => ({
+          content: n.content,
+          category: n.category,
+        })),
+        goals: goals.map(g => ({
+          title: g.title,
+          category: g.category,
+          targetValue: g.targetValue,
+          currentValue: g.currentValue,
+          status: g.status,
+        })),
+      });
+
+      console.log(`Thread initialized for user ${userId}`);
+    }
+
+    // Calculate today's nutrition
+    const todayNutrition = {
+      calories: todayFoodEntries.reduce((sum, e) => sum + (e.calories || 0), 0),
+      protein: todayFoodEntries.reduce((sum, e) => sum + (e.proteinGrams || 0), 0),
+      carbs: todayFoodEntries.reduce((sum, e) => sum + (e.carbsGrams || 0), 0),
+      fat: todayFoodEntries.reduce((sum, e) => sum + (e.fatGrams || 0), 0),
+    };
+
+    // Check if user worked out yesterday
+    const yesterdayDate = format(subDays(new Date(), 1), "yyyy-MM-dd");
+    const workedOutYesterday = recentExerciseLogs.some(log => log.logDate === yesterdayDate);
+
+    // Get average sleep from recent logs
+    const logsWithSleep = recentLogs.filter(l => l.sleepHours);
+    const avgSleep = logsWithSleep.length > 0
+      ? logsWithSleep.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / logsWithSleep.length
+      : null;
+
+    // Generate guidance using the thread
+    const responseText = await generateDailyGuidanceWithThread(userId, {
+      currentHour,
+      todayNutrition,
+      todaySteps: todayLog?.steps || 0,
+      yesterdayLog: yesterdayLog ? {
+        sleepHours: yesterdayLog.sleepHours,
+        energyLevel: yesterdayLog.energyLevel,
+        stressLevel: yesterdayLog.stressLevel,
+        caloriesConsumed: yesterdayLog.caloriesConsumed,
+        proteinGrams: yesterdayLog.proteinGrams,
+        steps: yesterdayLog.steps,
+      } : null,
+      workedOutYesterday,
+      recentSleepAvg: avgSleep,
+      profile: {
+        firstName: profile.firstName,
+        targetCalories: profile.targetCalories,
+        proteinGrams: profile.proteinGrams,
+        carbsGrams: profile.carbsGrams,
+        fatGrams: profile.fatGrams,
+        dailyStepsTarget: profile.dailyStepsTarget,
+        coachingTone: profile.coachingTone,
+        currentPhase: profile.currentPhase,
+      },
+    });
+
+    // Parse the JSON response
+    // The response might have markdown code blocks, so extract JSON
+    let jsonContent = responseText;
+    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      jsonContent = jsonMatch[1].trim();
+    }
+
+    const guidance = JSON.parse(jsonContent) as Omit<DailyGuidance, "generatedAt">;
+
+    return {
+      ...guidance,
+      generatedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("Error generating daily guidance with assistant:", error);
+
+    // Fall back to the one-shot approach
+    console.log("Falling back to one-shot guidance generation...");
+    return generateDailyGuidance(context);
   }
 }

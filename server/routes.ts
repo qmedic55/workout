@@ -8,7 +8,7 @@ import { searchUSDAFoods } from "./foodApi";
 import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from "./aiRecommendations";
 import { parseAIResponseForActions, prepareProfileUpdates, formatChangeNotification } from "./aiActionParser";
 import { sendProactiveNotifications, getDailyProgressSummary, generateAfternoonReminders } from "./proactiveNotifications";
-import { generateDailyGuidance } from "./dailyGuidance";
+import { generateDailyGuidance, generateDailyGuidanceWithAssistant } from "./dailyGuidance";
 import { format, subDays, parseISO } from "date-fns";
 import {
   insertUserProfileSchema,
@@ -1282,27 +1282,58 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Get active health notes for context
       const healthNotes = await storage.getRecentHealthNotes(userId, 14);
 
-      // Get full year history for comprehensive AI analysis
-      const yearlyDailyLogs = await storage.getDailyLogs(userId, yearAgo, today);
-      const yearlyExerciseLogs = await storage.getExerciseLogsRange(userId, yearAgo, today);
-      const yearlyFoodEntries = await storage.getFoodEntriesRange(userId, yearAgo, today);
+      // Check if we should use the persistent thread-based assistant
+      const useAssistant = process.env.USE_ASSISTANT_API === "true";
 
-      // Generate AI guidance
-      const guidance = await generateDailyGuidance({
-        profile,
-        assessment,
-        todayLog,
-        yesterdayLog,
-        recentLogs,
-        todayFoodEntries,
-        yesterdayFoodEntries,
-        recentExerciseLogs,
-        healthNotes,
-        currentHour: new Date().getHours(),
-        yearlyDailyLogs,
-        yearlyExerciseLogs,
-        yearlyFoodEntries,
-      });
+      let guidance;
+
+      if (useAssistant) {
+        // Use OpenAI Assistants API with persistent threads
+        // Only fetch yearly data on first call (thread initialization)
+        const yearlyDailyLogs = await storage.getDailyLogs(userId, yearAgo, today);
+        const yearlyExerciseLogs = await storage.getExerciseLogsRange(userId, yearAgo, today);
+        const yearlyFoodEntries = await storage.getFoodEntriesRange(userId, yearAgo, today);
+        const goals = await storage.getGoals(userId);
+
+        guidance = await generateDailyGuidanceWithAssistant({
+          userId,
+          profile,
+          assessment,
+          todayLog,
+          yesterdayLog,
+          recentLogs,
+          todayFoodEntries,
+          yesterdayFoodEntries,
+          recentExerciseLogs,
+          healthNotes,
+          currentHour: new Date().getHours(),
+          yearlyDailyLogs,
+          yearlyExerciseLogs,
+          yearlyFoodEntries,
+          goals,
+        });
+      } else {
+        // Use one-shot completion (legacy mode)
+        const yearlyDailyLogs = await storage.getDailyLogs(userId, yearAgo, today);
+        const yearlyExerciseLogs = await storage.getExerciseLogsRange(userId, yearAgo, today);
+        const yearlyFoodEntries = await storage.getFoodEntriesRange(userId, yearAgo, today);
+
+        guidance = await generateDailyGuidance({
+          profile,
+          assessment,
+          todayLog,
+          yesterdayLog,
+          recentLogs,
+          todayFoodEntries,
+          yesterdayFoodEntries,
+          recentExerciseLogs,
+          healthNotes,
+          currentHour: new Date().getHours(),
+          yearlyDailyLogs,
+          yearlyExerciseLogs,
+          yearlyFoodEntries,
+        });
+      }
 
       res.json(guidance);
     } catch (error) {
