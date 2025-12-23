@@ -328,7 +328,7 @@ export function PointsDisplay({ variant = "full" }: PointsDisplayProps) {
 
 function getProgressToNextMultiplier(streak: number): number {
   if (streak >= 14) return 100;
-  if (streak >= 7) return ((streak - 7) / 7) * 100;
-  if (streak >= 3) return ((streak - 3) / 4) * 100;
-  return (streak / 3) * 100;
+  if (streak >= 7) return Math.round(((streak - 7) / 7) * 100);
+  if (streak >= 3) return Math.round(((streak - 3) / 4) * 100);
+  return Math.round((streak / 3) * 100);
 }

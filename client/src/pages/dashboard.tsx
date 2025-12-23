@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { QuickNote } from "@/components/quick-note";
 import { MilestoneCelebration, MilestoneProgress } from "@/components/milestone-celebration";
 import { WelcomeFlow } from "@/components/welcome-flow";
+import { WelcomeBonusModal } from "@/components/welcome-bonus-modal";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -407,6 +408,9 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Welcome Bonus Modal - shows points earned after onboarding */}
+      <WelcomeBonusModal />
+
       {/* Milestone Celebration Modal - auto-shows when milestones are achieved */}
       <MilestoneCelebration />
 

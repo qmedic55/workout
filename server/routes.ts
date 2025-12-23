@@ -17,6 +17,7 @@ import {
   awardStepPoints,
   awardMilestonePoints,
   getLeaderboard,
+  awardWelcomeBonusPoints,
 } from "./pointsService";
 import { format, subDays, parseISO } from "date-fns";
 import {
@@ -212,6 +213,7 @@ const onboardingSchema = z.object({
   coachingTone: z.enum(["empathetic", "scientific", "casual", "tough_love"]).optional(),
   hasHealthConditions: z.boolean().optional(),
   healthConditionsNotes: z.string().optional(),
+  enableNotifications: z.boolean().optional(),
 });
 
 const chatMessageSchema = z.object({
@@ -505,7 +507,28 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         contextType: "onboarding",
       });
 
-      res.json({ profile, targets });
+      // Award welcome bonus points based on info provided
+      const welcomeBonusResult = await awardWelcomeBonusPoints(
+        getUserId(req),
+        {
+          hasTargetWeight: !!data.targetWeightKg,
+          hasExerciseInfo: !!data.doesResistanceTraining || !!(data.resistanceTrainingFrequency && data.resistanceTrainingFrequency > 0),
+          hasDietingHistory: !!data.hasBeenDietingRecently,
+          hasSleepInfo: data.sleepQuality !== undefined && data.sleepQuality !== null,
+          hasStressInfo: data.stressLevel !== undefined && data.stressLevel !== null,
+          hasCoachingPreference: !!data.coachingTone,
+          notificationsEnabled: !!data.enableNotifications,
+        }
+      );
+
+      res.json({
+        profile,
+        targets,
+        welcomeBonus: {
+          pointsAwarded: welcomeBonusResult.pointsAwarded,
+          breakdown: welcomeBonusResult.breakdown,
+        }
+      });
     } catch (error) {
       console.error("Error processing onboarding:", error);
       res.status(500).json({ error: "Failed to process onboarding" });

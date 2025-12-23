@@ -238,10 +238,15 @@ export default function Onboarding() {
         localStorage.removeItem(ONBOARDING_FORM_KEY);
         // Store that this is a new user for first-week magic
         localStorage.setItem("vitalpath_first_day", new Date().toISOString());
+        // Store welcome bonus for display on dashboard
+        if (result.welcomeBonus) {
+          localStorage.setItem("vitalpath_welcome_bonus", JSON.stringify(result.welcomeBonus));
+        }
       } catch {
         // localStorage not available
       }
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/points"] });
 
       // Navigate to dashboard with first-visit flag
       navigate("/?welcome=true");

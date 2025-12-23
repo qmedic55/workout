@@ -38,6 +38,16 @@ export const POINT_VALUES = {
   MILESTONE_STREAK_14: 300,
   MILESTONE_STREAK_30: 500,
   MILESTONE_FIRST_WEEK: 250,
+
+  // Welcome bonus - points for completing onboarding with more info
+  WELCOME_BASE: 50,                    // Base points for completing onboarding
+  WELCOME_TARGET_WEIGHT: 10,           // Set a goal weight
+  WELCOME_EXERCISE_HISTORY: 15,        // Shared exercise habits
+  WELCOME_DIETING_HISTORY: 15,         // Shared dieting history
+  WELCOME_SLEEP_INFO: 10,              // Shared sleep quality
+  WELCOME_STRESS_INFO: 10,             // Shared stress level
+  WELCOME_COACHING_PREFERENCE: 10,     // Selected coaching style
+  WELCOME_NOTIFICATIONS_ENABLED: 10,   // Enabled notifications
 };
 
 /**
@@ -434,4 +444,122 @@ export async function getLeaderboard(
   points: number;
 }>> {
   return storage.getLeaderboard(type, limit);
+}
+
+/**
+ * Calculate and award welcome bonus points based on onboarding data completeness
+ * More information provided = more points earned
+ */
+export interface WelcomeBonusData {
+  hasTargetWeight: boolean;
+  hasExerciseInfo: boolean;      // exerciseFrequency !== "none"
+  hasDietingHistory: boolean;    // dietingHistory !== "no"
+  hasSleepInfo: boolean;         // sleepQuality provided
+  hasStressInfo: boolean;        // stressLevel provided
+  hasCoachingPreference: boolean; // coachingTone provided
+  notificationsEnabled: boolean;
+}
+
+export interface WelcomeBonusBreakdown {
+  base: number;
+  targetWeight: number;
+  exerciseInfo: number;
+  dietingHistory: number;
+  sleepInfo: number;
+  stressInfo: number;
+  coachingPreference: number;
+  notifications: number;
+  total: number;
+}
+
+export function calculateWelcomeBonusBreakdown(data: WelcomeBonusData): WelcomeBonusBreakdown {
+  const breakdown: WelcomeBonusBreakdown = {
+    base: POINT_VALUES.WELCOME_BASE,
+    targetWeight: data.hasTargetWeight ? POINT_VALUES.WELCOME_TARGET_WEIGHT : 0,
+    exerciseInfo: data.hasExerciseInfo ? POINT_VALUES.WELCOME_EXERCISE_HISTORY : 0,
+    dietingHistory: data.hasDietingHistory ? POINT_VALUES.WELCOME_DIETING_HISTORY : 0,
+    sleepInfo: data.hasSleepInfo ? POINT_VALUES.WELCOME_SLEEP_INFO : 0,
+    stressInfo: data.hasStressInfo ? POINT_VALUES.WELCOME_STRESS_INFO : 0,
+    coachingPreference: data.hasCoachingPreference ? POINT_VALUES.WELCOME_COACHING_PREFERENCE : 0,
+    notifications: data.notificationsEnabled ? POINT_VALUES.WELCOME_NOTIFICATIONS_ENABLED : 0,
+    total: 0,
+  };
+
+  breakdown.total = breakdown.base +
+    breakdown.targetWeight +
+    breakdown.exerciseInfo +
+    breakdown.dietingHistory +
+    breakdown.sleepInfo +
+    breakdown.stressInfo +
+    breakdown.coachingPreference +
+    breakdown.notifications;
+
+  return breakdown;
+}
+
+export async function awardWelcomeBonusPoints(
+  userId: string,
+  data: WelcomeBonusData,
+  timezone?: string
+): Promise<{ pointsAwarded: number; breakdown: WelcomeBonusBreakdown }> {
+  const breakdown = calculateWelcomeBonusBreakdown(data);
+
+  if (breakdown.total === 0) {
+    return { pointsAwarded: 0, breakdown };
+  }
+
+  // Build description of what was completed
+  const completedItems: string[] = ["Profile created"];
+  if (data.hasTargetWeight) completedItems.push("goal weight");
+  if (data.hasExerciseInfo) completedItems.push("exercise habits");
+  if (data.hasDietingHistory) completedItems.push("diet history");
+  if (data.hasSleepInfo) completedItems.push("sleep info");
+  if (data.hasStressInfo) completedItems.push("stress level");
+  if (data.hasCoachingPreference) completedItems.push("coaching style");
+  if (data.notificationsEnabled) completedItems.push("notifications");
+
+  // Get or create user points record first
+  let userPointsRecord = await storage.getUserPoints(userId);
+
+  if (!userPointsRecord) {
+    userPointsRecord = await storage.createUserPoints({
+      userId,
+      lifetimePoints: 0,
+      spendablePoints: 0,
+      dailyPoints: 0,
+      weeklyPoints: 0,
+      monthlyPoints: 0,
+      currentStreak: 0,
+      longestStreak: 0,
+      lastActivityDate: null,
+    });
+  }
+
+  // Create transaction (no multiplier for welcome bonus)
+  await storage.createPointTransaction({
+    userId,
+    actionType: "welcome_bonus",
+    basePoints: breakdown.total,
+    multiplier: 1,
+    bonusPoints: 0,
+    totalPoints: breakdown.total,
+    description: `Welcome bonus: ${completedItems.join(", ")}`,
+    referenceId: "onboarding",
+    referenceType: "onboarding",
+  });
+
+  // Update user points
+  const today = getTodayDateString(timezone);
+  await storage.updateUserPoints(userId, {
+    lifetimePoints: userPointsRecord.lifetimePoints + breakdown.total,
+    spendablePoints: userPointsRecord.spendablePoints + breakdown.total,
+    dailyPoints: userPointsRecord.dailyPoints + breakdown.total,
+    weeklyPoints: userPointsRecord.weeklyPoints + breakdown.total,
+    monthlyPoints: userPointsRecord.monthlyPoints + breakdown.total,
+    currentStreak: 1, // Start the streak!
+    longestStreak: Math.max(userPointsRecord.longestStreak, 1),
+    lastActivityDate: today,
+  });
+
+  return { pointsAwarded: breakdown.total, breakdown };
 }
