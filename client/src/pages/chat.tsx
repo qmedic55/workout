@@ -137,9 +137,30 @@ export default function Chat() {
     onSuccess: (data) => {
       setPendingMessage(null);
       queryClient.invalidateQueries({ queryKey: ["/api/chat/messages"] });
+
       // If AI applied changes to profile (e.g., updated calories), refresh profile data
       if (data.appliedChanges && data.appliedChanges.length > 0) {
         queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      }
+
+      // If food/exercise/biofeedback was logged, invalidate related queries
+      if (data.loggedData) {
+        if (data.loggedData.foodsLogged > 0) {
+          // Invalidate all food-entries queries (with any date param)
+          queryClient.invalidateQueries({ predicate: (query) =>
+            Array.isArray(query.queryKey) && query.queryKey[0] === "/api/food-entries"
+          });
+        }
+        if (data.loggedData.exercisesLogged > 0) {
+          // Invalidate all exercise-logs queries
+          queryClient.invalidateQueries({ predicate: (query) =>
+            Array.isArray(query.queryKey) && query.queryKey[0] === "/api/exercise-logs"
+          });
+        }
+        if (data.loggedData.dailyLogUpdated || data.loggedData.foodsLogged > 0 || data.loggedData.exercisesLogged > 0) {
+          queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
+        }
       }
     },
     onError: () => {

@@ -983,6 +983,178 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       }
       const { content } = parseResult.data;
 
+      // Get user profile for timezone
+      const profile = await storage.getProfile(userId);
+      const userTimezone = getSafeTimezone(profile?.timezone);
+      const today = getTodayInTimezone(userTimezone);
+
+      // ========== PARSE USER MESSAGE FOR TRACKABLE DATA ==========
+      // This ensures chat and QuickNote have identical behavior
+      const nlpResult = await parseNaturalLanguageInput(content, userTimezone);
+
+      // Track what was logged
+      const loggedData: {
+        foodEntries: any[];
+        exerciseLogs: any[];
+        dailyLogChanges: string[];
+        dailyLogUpdated: boolean;
+        workoutCompleted: boolean;
+        workoutType?: string;
+      } = {
+        foodEntries: [],
+        exerciseLogs: [],
+        dailyLogChanges: [],
+        dailyLogUpdated: false,
+        workoutCompleted: false,
+      };
+
+      // 1. Create food entries
+      if (nlpResult.foods.length > 0) {
+        for (const food of nlpResult.foods) {
+          try {
+            const entry = await storage.createFoodEntry({
+              userId,
+              logDate: today,
+              mealType: food.mealType,
+              foodName: food.foodName,
+              servingSize: food.servingSize,
+              servingQuantity: food.servingQuantity,
+              calories: food.calories,
+              proteinGrams: food.proteinGrams,
+              carbsGrams: food.carbsGrams,
+              fatGrams: food.fatGrams,
+              fiberGrams: food.fiberGrams,
+            });
+            loggedData.foodEntries.push(entry);
+          } catch (err) {
+            console.error("Error creating food entry from chat:", err);
+          }
+        }
+      }
+
+      // 2. Create exercise logs
+      if (nlpResult.exercises.length > 0) {
+        for (let i = 0; i < nlpResult.exercises.length; i++) {
+          const exercise = nlpResult.exercises[i];
+          try {
+            let setDetails: { reps: number; weightKg?: number }[] | undefined;
+            if (exercise.sets && exercise.reps) {
+              const repsNum = parseInt(exercise.reps) || 10;
+              setDetails = Array(exercise.sets).fill(null).map(() => ({
+                reps: repsNum,
+                weightKg: exercise.weightKg,
+              }));
+            }
+
+            const exerciseLog = await storage.createExerciseLog({
+              userId,
+              logDate: today,
+              exerciseName: exercise.exerciseName,
+              exerciseOrder: i + 1,
+              prescribedSets: exercise.sets,
+              prescribedReps: exercise.reps,
+              completedSets: exercise.sets,
+              setDetails,
+              notes: exercise.notes || (exercise.durationMinutes ? `${exercise.durationMinutes} minutes` : undefined),
+            });
+            loggedData.exerciseLogs.push(exerciseLog);
+          } catch (err) {
+            console.error("Error creating exercise log from chat:", err);
+          }
+        }
+      }
+
+      // 3. Update daily log with biofeedback data
+      const updates = nlpResult.dailyLogUpdates;
+      const hasUpdates = Object.values(updates).some(v => v !== undefined);
+
+      if (hasUpdates || nlpResult.workoutCompleted) {
+        try {
+          const logUpdates: Record<string, any> = {};
+          const existingLog = await storage.getDailyLog(userId, today);
+
+          if (updates.sleepHours !== undefined) {
+            logUpdates.sleepHours = updates.sleepHours;
+            loggedData.dailyLogChanges.push(`Sleep: ${updates.sleepHours}h`);
+          }
+          if (updates.sleepQuality !== undefined) {
+            logUpdates.sleepQuality = updates.sleepQuality;
+            loggedData.dailyLogChanges.push(`Sleep quality: ${updates.sleepQuality}/10`);
+          }
+          if (updates.steps !== undefined) {
+            logUpdates.steps = updates.steps;
+            const existingSteps = existingLog?.steps || 0;
+            const newTotal = existingSteps + updates.steps;
+            if (existingSteps > 0) {
+              loggedData.dailyLogChanges.push(`Steps: +${updates.steps.toLocaleString()} (${newTotal.toLocaleString()} total)`);
+            } else {
+              loggedData.dailyLogChanges.push(`Steps: ${updates.steps.toLocaleString()}`);
+            }
+          }
+          if (updates.energyLevel !== undefined) {
+            logUpdates.energyLevel = updates.energyLevel;
+            loggedData.dailyLogChanges.push(`Energy: ${updates.energyLevel}/10`);
+          }
+          if (updates.stressLevel !== undefined) {
+            logUpdates.stressLevel = updates.stressLevel;
+            loggedData.dailyLogChanges.push(`Stress: ${updates.stressLevel}/10`);
+          }
+          if (updates.moodRating !== undefined) {
+            logUpdates.moodRating = updates.moodRating;
+            loggedData.dailyLogChanges.push(`Mood: ${updates.moodRating}/10`);
+          }
+          if (updates.weightKg !== undefined) {
+            logUpdates.weightKg = updates.weightKg;
+            loggedData.dailyLogChanges.push(`Weight: ${updates.weightKg}kg`);
+          }
+          if (updates.waterLiters !== undefined) {
+            logUpdates.waterLiters = updates.waterLiters;
+            const existingWater = existingLog?.waterLiters || 0;
+            const newTotal = existingWater + updates.waterLiters;
+            if (existingWater > 0) {
+              loggedData.dailyLogChanges.push(`Water: +${updates.waterLiters}L (${newTotal}L total)`);
+            } else {
+              loggedData.dailyLogChanges.push(`Water: ${updates.waterLiters}L`);
+            }
+          }
+          if (nlpResult.workoutCompleted) {
+            logUpdates.workoutCompleted = true;
+            if (nlpResult.workoutType) {
+              logUpdates.workoutType = nlpResult.workoutType;
+            }
+            loggedData.dailyLogChanges.push(`Workout: ${nlpResult.workoutType || "completed"}`);
+            loggedData.workoutCompleted = true;
+            loggedData.workoutType = nlpResult.workoutType;
+          }
+
+          if (Object.keys(logUpdates).length > 0) {
+            await storage.createOrUpdateDailyLog({
+              userId,
+              logDate: today,
+              ...logUpdates,
+            }, { accumulate: true });
+            loggedData.dailyLogUpdated = true;
+          }
+        } catch (err) {
+          console.error("Error updating daily log from chat:", err);
+        }
+      }
+
+      // 4. Save as health note if it contains contextual info
+      if (nlpResult.isHealthNote) {
+        try {
+          await storage.createHealthNote({
+            userId,
+            content: content.trim(),
+            category: "general",
+            isActive: true,
+          });
+        } catch (err) {
+          console.error("Error creating health note from chat:", err);
+        }
+      }
+      // ========== END PARSING ==========
+
       // Save user message
       await storage.createChatMessage({
         userId,
@@ -992,7 +1164,6 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       });
 
       // Get context for AI - fetch ALL user data for comprehensive awareness
-      const profile = await storage.getProfile(userId);
       const assessment = await storage.getOnboardingAssessment(userId);
 
       // Get last 14 days of logs for trend analysis
@@ -1082,10 +1253,21 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         }
       }
 
-      // Return response with metadata about changes
+      // Return response with metadata about changes AND logged data
       res.json({
         ...assistantMessage,
         appliedChanges: appliedChanges.length > 0 ? appliedChanges : undefined,
+        // Include logged data so client can invalidate correct queries
+        loggedData: {
+          foodsLogged: loggedData.foodEntries.length,
+          foodEntries: loggedData.foodEntries,
+          exercisesLogged: loggedData.exerciseLogs.length,
+          exerciseLogs: loggedData.exerciseLogs,
+          dailyLogUpdated: loggedData.dailyLogUpdated,
+          dailyLogChanges: loggedData.dailyLogChanges,
+          workoutCompleted: loggedData.workoutCompleted,
+          workoutType: loggedData.workoutType,
+        },
       });
     } catch (error) {
       console.error("Error in chat:", error);
