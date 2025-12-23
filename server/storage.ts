@@ -22,6 +22,8 @@ import {
   shareEvents,
   userMilestones,
   progressivePrompts,
+  userPoints,
+  pointTransactions,
   type UserProfile,
   type InsertUserProfile,
   type OnboardingAssessment,
@@ -61,6 +63,10 @@ import {
   type InsertUserMilestone,
   type ProgressivePrompt,
   type InsertProgressivePrompt,
+  type UserPoints,
+  type InsertUserPoints,
+  type PointTransaction,
+  type InsertPointTransaction,
 } from "@shared/schema";
 
 // Simple Levenshtein similarity for fuzzy food name matching
@@ -227,6 +233,29 @@ export interface IStorage {
   createProgressivePrompt(prompt: InsertProgressivePrompt): Promise<ProgressivePrompt>;
   getNextProgressivePrompt(userId: string): Promise<{ promptKey: string; question: string; options: { value: string; label: string }[]; skipLabel: string } | null>;
   getAnsweredPromptKeys(userId: string): Promise<string[]>;
+
+  // User Points (gamification)
+  getUserPoints(userId: string): Promise<UserPoints | undefined>;
+  createUserPoints(points: InsertUserPoints): Promise<UserPoints>;
+  updateUserPoints(userId: string, updates: Partial<InsertUserPoints>): Promise<UserPoints>;
+
+  // Point Transactions
+  createPointTransaction(transaction: InsertPointTransaction): Promise<PointTransaction>;
+  getPointTransactions(userId: string, limit?: number, offset?: number): Promise<PointTransaction[]>;
+  getPointTransactionsToday(userId: string): Promise<PointTransaction[]>;
+
+  // Leaderboards
+  getLeaderboard(type: "daily" | "weekly" | "monthly", limit?: number): Promise<Array<{
+    rank: number;
+    userId: string;
+    username: string | null;
+    displayName: string | null;
+    profileImageUrl: string | null;
+    points: number;
+  }>>;
+  resetDailyPoints(): Promise<void>;
+  resetWeeklyPoints(): Promise<void>;
+  resetMonthlyPoints(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1316,6 +1345,126 @@ export class DatabaseStorage implements IStorage {
     }
 
     return null;
+  }
+
+  // User Points (gamification)
+  async getUserPoints(userId: string): Promise<UserPoints | undefined> {
+    const result = await db.select().from(userPoints).where(eq(userPoints.userId, userId));
+    return result[0];
+  }
+
+  async createUserPoints(points: InsertUserPoints): Promise<UserPoints> {
+    const result = await db.insert(userPoints).values(points).returning();
+    return result[0];
+  }
+
+  async updateUserPoints(userId: string, updates: Partial<InsertUserPoints>): Promise<UserPoints> {
+    const result = await db
+      .update(userPoints)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(userPoints.userId, userId))
+      .returning();
+
+    // If no record exists, create one with the updates
+    if (result.length === 0) {
+      return this.createUserPoints({
+        userId,
+        lifetimePoints: updates.lifetimePoints || 0,
+        spendablePoints: updates.spendablePoints || 0,
+        dailyPoints: updates.dailyPoints || 0,
+        weeklyPoints: updates.weeklyPoints || 0,
+        monthlyPoints: updates.monthlyPoints || 0,
+        currentStreak: updates.currentStreak || 0,
+        longestStreak: updates.longestStreak || 0,
+        lastActivityDate: updates.lastActivityDate || null,
+      });
+    }
+
+    return result[0];
+  }
+
+  // Point Transactions
+  async createPointTransaction(transaction: InsertPointTransaction): Promise<PointTransaction> {
+    const result = await db.insert(pointTransactions).values(transaction).returning();
+    return result[0];
+  }
+
+  async getPointTransactions(userId: string, limit: number = 50, offset: number = 0): Promise<PointTransaction[]> {
+    return db
+      .select()
+      .from(pointTransactions)
+      .where(eq(pointTransactions.userId, userId))
+      .orderBy(desc(pointTransactions.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getPointTransactionsToday(userId: string): Promise<PointTransaction[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return db
+      .select()
+      .from(pointTransactions)
+      .where(
+        and(
+          eq(pointTransactions.userId, userId),
+          gte(pointTransactions.createdAt, today)
+        )
+      )
+      .orderBy(desc(pointTransactions.createdAt));
+  }
+
+  // Leaderboards
+  async getLeaderboard(type: "daily" | "weekly" | "monthly", limit: number = 10): Promise<Array<{
+    rank: number;
+    userId: string;
+    username: string | null;
+    displayName: string | null;
+    profileImageUrl: string | null;
+    points: number;
+  }>> {
+    // Determine which point column to use
+    const pointsColumn = type === "daily"
+      ? userPoints.dailyPoints
+      : type === "weekly"
+        ? userPoints.weeklyPoints
+        : userPoints.monthlyPoints;
+
+    const results = await db
+      .select({
+        userId: userPoints.userId,
+        points: pointsColumn,
+        username: publicProfiles.username,
+        displayName: publicProfiles.displayName,
+        profileImageUrl: userProfiles.profileImageUrl,
+      })
+      .from(userPoints)
+      .leftJoin(publicProfiles, eq(userPoints.userId, publicProfiles.userId))
+      .leftJoin(userProfiles, eq(userPoints.userId, userProfiles.userId))
+      .orderBy(desc(pointsColumn))
+      .limit(limit);
+
+    return results.map((row, index) => ({
+      rank: index + 1,
+      userId: row.userId,
+      username: row.username,
+      displayName: row.displayName,
+      profileImageUrl: row.profileImageUrl,
+      points: row.points || 0,
+    }));
+  }
+
+  async resetDailyPoints(): Promise<void> {
+    await db.update(userPoints).set({ dailyPoints: 0 });
+  }
+
+  async resetWeeklyPoints(): Promise<void> {
+    await db.update(userPoints).set({ weeklyPoints: 0 });
+  }
+
+  async resetMonthlyPoints(): Promise<void> {
+    await db.update(userPoints).set({ monthlyPoints: 0 });
   }
 }
 

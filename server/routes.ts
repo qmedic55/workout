@@ -9,6 +9,15 @@ import { analyzeProfileForRecommendations, getQuickWorkoutRecommendation } from 
 import { parseAIResponseForActions, prepareProfileUpdates, formatChangeNotification } from "./aiActionParser";
 import { sendProactiveNotifications, getDailyProgressSummary, generateAfternoonReminders } from "./proactiveNotifications";
 import { generateDailyGuidance, generateDailyGuidanceWithAssistant } from "./dailyGuidance";
+import {
+  getPointsSummary,
+  awardFoodLogPoints,
+  awardWorkoutPoints,
+  awardBiofeedbackPoints,
+  awardStepPoints,
+  awardMilestonePoints,
+  getLeaderboard,
+} from "./pointsService";
 import { format, subDays, parseISO } from "date-fns";
 import {
   getTodayInTimezone,
@@ -707,14 +716,46 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         res.status(400).json({ error: "Invalid daily log data", details: parseResult.error.flatten() });
         return;
       }
-      
+
+      const userId = getUserId(req);
       const data = {
         ...parseResult.data,
-        userId: getUserId(req),
+        userId,
       };
-      
+
       const log = await storage.createOrUpdateDailyLog(data);
-      res.json(log);
+
+      // Award points for biofeedback and steps (don't block on errors)
+      let pointsAwarded = 0;
+      try {
+        const inputData = parseResult.data;
+
+        // Award biofeedback points
+        const biofeedbackFields = {
+          sleep: inputData.sleepHours !== undefined,
+          energy: inputData.energyLevel !== undefined,
+          stress: inputData.stressLevel !== undefined,
+          mood: inputData.moodRating !== undefined,
+          weight: inputData.weightKg !== undefined,
+        };
+        const hasBiofeedback = Object.values(biofeedbackFields).some(v => v);
+        if (hasBiofeedback) {
+          const biofeedbackResult = await awardBiofeedbackPoints(userId, log.id, biofeedbackFields);
+          pointsAwarded += biofeedbackResult.pointsAwarded;
+        }
+
+        // Award step points (compare with previous value)
+        if (inputData.steps !== undefined) {
+          const existingLog = await storage.getDailyLog(userId, inputData.logDate);
+          const previousSteps = existingLog?.steps || null;
+          const stepResult = await awardStepPoints(userId, log.id, inputData.steps, previousSteps);
+          pointsAwarded += stepResult.pointsAwarded;
+        }
+      } catch (pointsError) {
+        console.error("Error awarding daily log points:", pointsError);
+      }
+
+      res.json({ ...log, pointsAwarded });
     } catch (error) {
       console.error("Error saving log:", error);
       res.status(500).json({ error: "Failed to save log" });
@@ -778,7 +819,16 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         console.error("Error checking streak milestones:", streakError);
       }
 
-      res.json(entry);
+      // Award points for food logging (don't block on errors)
+      let pointsAwarded = 0;
+      try {
+        const pointResult = await awardFoodLogPoints(userId, entry.id, entry.foodName);
+        pointsAwarded = pointResult.pointsAwarded;
+      } catch (pointsError) {
+        console.error("Error awarding food log points:", pointsError);
+      }
+
+      res.json({ ...entry, pointsAwarded });
     } catch (error) {
       console.error("Error creating food entry:", error);
       res.status(500).json({ error: "Failed to create food entry" });
@@ -870,7 +920,18 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Check for streak milestones
       await checkStreakMilestones(userId);
 
-      res.json(log);
+      // Award points for workout (don't block on errors)
+      let pointsAwarded = 0;
+      try {
+        // Default to 30 minutes if duration not tracked
+        const durationMinutes = 30;
+        const pointResult = await awardWorkoutPoints(userId, log.id, log.exerciseName, durationMinutes);
+        pointsAwarded = pointResult.pointsAwarded;
+      } catch (pointsError) {
+        console.error("Error awarding workout points:", pointsError);
+      }
+
+      res.json({ ...log, pointsAwarded });
     } catch (error) {
       console.error("Error creating exercise log:", error);
       res.status(500).json({ error: "Failed to create exercise log" });
@@ -4163,6 +4224,63 @@ Already eaten today: ${todayFood.map(f => f.foodName).join(", ") || "Nothing log
     } catch (error) {
       console.error("Error fetching share events:", error);
       res.status(500).json({ error: "Failed to fetch share events" });
+    }
+  });
+
+  // ==================== Points & Leaderboard Routes ====================
+
+  // Get current user's points summary
+  app.get("/api/points", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const summary = await getPointsSummary(userId);
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching points summary:", error);
+      res.status(500).json({ error: "Failed to fetch points summary" });
+    }
+  });
+
+  // Get point transaction history
+  app.get("/api/points/history", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const transactions = await storage.getPointTransactions(userId, limit, offset);
+      res.json(transactions);
+    } catch (error) {
+      console.error("Error fetching point history:", error);
+      res.status(500).json({ error: "Failed to fetch point history" });
+    }
+  });
+
+  // Get today's point transactions
+  app.get("/api/points/today", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const transactions = await storage.getPointTransactionsToday(userId);
+      res.json(transactions);
+    } catch (error) {
+      console.error("Error fetching today's points:", error);
+      res.status(500).json({ error: "Failed to fetch today's points" });
+    }
+  });
+
+  // Get leaderboard (daily, weekly, or monthly)
+  app.get("/api/leaderboards/:type", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { type } = req.params;
+      if (!["daily", "weekly", "monthly"].includes(type)) {
+        res.status(400).json({ error: "Invalid leaderboard type. Use: daily, weekly, or monthly" });
+        return;
+      }
+      const limit = parseInt(req.query.limit as string) || 10;
+      const leaderboard = await getLeaderboard(type as "daily" | "weekly" | "monthly", limit);
+      res.json(leaderboard);
+    } catch (error) {
+      console.error("Error fetching leaderboard:", error);
+      res.status(500).json({ error: "Failed to fetch leaderboard" });
     }
   });
 

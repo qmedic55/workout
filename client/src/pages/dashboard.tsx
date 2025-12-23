@@ -31,6 +31,8 @@ import type { UserProfile, DailyLog, FoodEntry } from "@shared/schema";
 const HealthInsights = lazy(() => import("@/components/health-insights").then(m => ({ default: m.HealthInsights })));
 const DailyGuidance = lazy(() => import("@/components/daily-guidance").then(m => ({ default: m.DailyGuidance })));
 const RestDayCard = lazy(() => import("@/components/rest-day-card").then(m => ({ default: m.RestDayCard })));
+const PointsDisplay = lazy(() => import("@/components/points-display").then(m => ({ default: m.PointsDisplay })));
+const LeaderboardCard = lazy(() => import("@/components/leaderboard-card").then(m => ({ default: m.LeaderboardCard })));
 
 function MetricCard({
   title,
@@ -508,6 +510,18 @@ export default function Dashboard() {
         <Suspense fallback={<Skeleton className="h-32 w-full" />}>
           <HealthInsights limit={3} />
         </Suspense>
+      )}
+
+      {/* Points & Leaderboard Section */}
+      {profile?.onboardingCompleted && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <PointsDisplay variant="full" />
+          </Suspense>
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <LeaderboardCard />
+          </Suspense>
+        </div>
       )}
 
       {profile?.targetCalories && (

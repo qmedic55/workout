@@ -482,6 +482,56 @@ export const progressivePrompts = pgTable("progressive_prompts", {
   uniqueUserPrompt: index("idx_progressive_prompts_unique").on(table.userId, table.promptKey),
 }));
 
+// User points - gamification points tracking
+export const userPoints = pgTable("user_points", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique().references(() => users.id),
+
+  // Lifetime points (never reset)
+  lifetimePoints: integer("lifetime_points").notNull().default(0),
+
+  // Spendable currency (can be deducted when store is added)
+  spendablePoints: integer("spendable_points").notNull().default(0),
+
+  // Rolling period points (for leaderboards)
+  dailyPoints: integer("daily_points").notNull().default(0),
+  weeklyPoints: integer("weekly_points").notNull().default(0),
+  monthlyPoints: integer("monthly_points").notNull().default(0),
+
+  // Streak tracking for multipliers
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastActivityDate: date("last_activity_date"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Point transactions - audit log of all points earned
+export const pointTransactions = pgTable("point_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+
+  // Transaction details
+  actionType: text("action_type").notNull(), // food_log, workout, biofeedback, milestone, streak_bonus
+  basePoints: integer("base_points").notNull(),
+  multiplier: real("multiplier").notNull().default(1),
+  bonusPoints: integer("bonus_points").default(0),
+  totalPoints: integer("total_points").notNull(),
+
+  // Human-readable description
+  description: text("description").notNull(),
+
+  // Reference to the source action (food entry, workout, etc.)
+  referenceId: varchar("reference_id"),
+  referenceType: text("reference_type"), // food_entry, exercise_log, daily_log
+
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("idx_point_transactions_user").on(table.userId),
+  createdAtIdx: index("idx_point_transactions_created").on(table.createdAt),
+}));
+
 // Health notes - user-submitted context notes for AI coaching
 export const healthNotes = pgTable("health_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -561,6 +611,11 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   shareEvents: many(shareEvents),
   userMilestones: many(userMilestones),
   progressivePrompts: many(progressivePrompts),
+  userPoints: one(userPoints, {
+    fields: [users.id],
+    references: [userPoints.userId],
+  }),
+  pointTransactions: many(pointTransactions),
 }));
 
 export const mealTemplatesRelations = relations(mealTemplates, ({ one }) => ({
@@ -620,6 +675,20 @@ export const userMilestonesRelations = relations(userMilestones, ({ one }) => ({
 export const progressivePromptsRelations = relations(progressivePrompts, ({ one }) => ({
   user: one(users, {
     fields: [progressivePrompts.userId],
+    references: [users.id],
+  }),
+}));
+
+export const userPointsRelations = relations(userPoints, ({ one }) => ({
+  user: one(users, {
+    fields: [userPoints.userId],
+    references: [users.id],
+  }),
+}));
+
+export const pointTransactionsRelations = relations(pointTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [pointTransactions.userId],
     references: [users.id],
   }),
 }));
@@ -823,6 +892,17 @@ export const insertProgressivePromptSchema = createInsertSchema(progressivePromp
   createdAt: true,
 });
 
+export const insertUserPointsSchema = createInsertSchema(userPoints).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertPointTransactionSchema = createInsertSchema(pointTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types (User and UpsertUser are exported from ./models/auth)
 
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
@@ -882,3 +962,9 @@ export type UserMilestone = typeof userMilestones.$inferSelect;
 
 export type InsertProgressivePrompt = z.infer<typeof insertProgressivePromptSchema>;
 export type ProgressivePrompt = typeof progressivePrompts.$inferSelect;
+
+export type InsertUserPoints = z.infer<typeof insertUserPointsSchema>;
+export type UserPoints = typeof userPoints.$inferSelect;
+
+export type InsertPointTransaction = z.infer<typeof insertPointTransactionSchema>;
+export type PointTransaction = typeof pointTransactions.$inferSelect;
