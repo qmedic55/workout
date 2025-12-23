@@ -738,17 +738,22 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // Check and trigger first_food_log milestone (don't block on errors)
       try {
+        console.log(`[MILESTONE] Checking first_food_log for user ${userId}`);
         const existingMilestone = await storage.getUserMilestone(userId, "first_food_log");
+        console.log(`[MILESTONE] Existing milestone:`, existingMilestone);
         if (!existingMilestone) {
-          await storage.createUserMilestone({
+          console.log(`[MILESTONE] Creating first_food_log milestone...`);
+          const newMilestone = await storage.createUserMilestone({
             userId,
             milestoneKey: "first_food_log",
             data: { foodName: entry.foodName, calories: entry.calories },
           });
-          console.log(`Created first_food_log milestone for user ${userId}`);
+          console.log(`[MILESTONE] Created first_food_log milestone:`, newMilestone);
+        } else {
+          console.log(`[MILESTONE] Milestone already exists, skipping creation`);
         }
       } catch (milestoneError) {
-        console.error("Error creating first_food_log milestone:", milestoneError);
+        console.error("[MILESTONE] Error creating first_food_log milestone:", milestoneError);
       }
 
       // Check for streak milestones (don't block on errors)
