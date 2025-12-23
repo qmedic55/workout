@@ -115,11 +115,18 @@ export function QuickNote() {
     onSuccess: (data) => {
       setNote("");
       setIsExpanded(false);
+      // Invalidate all related queries - use predicate to match partial keys
       queryClient.invalidateQueries({ queryKey: ["/api/health-notes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
+      // Match all food-entries queries (including those with date param like ["/api/food-entries", "2024-01-15"])
+      queryClient.invalidateQueries({ predicate: (query) =>
+        Array.isArray(query.queryKey) && query.queryKey[0] === "/api/food-entries"
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/exercise-logs"] });
+      // Match all exercise-logs queries
+      queryClient.invalidateQueries({ predicate: (query) =>
+        Array.isArray(query.queryKey) && query.queryKey[0] === "/api/exercise-logs"
+      });
 
       // Build a comprehensive description of what was logged
       const parts: string[] = [];
