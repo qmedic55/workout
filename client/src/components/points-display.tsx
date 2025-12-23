@@ -11,9 +11,19 @@ import {
   Star,
   ChevronDown,
   ChevronUp,
+  Info,
+  Utensils,
+  Dumbbell,
+  Heart,
+  Footprints,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface PointsSummary {
   lifetimePoints: number;
@@ -133,18 +143,63 @@ export function PointsDisplay({ variant = "full" }: PointsDisplayProps) {
               </CardDescription>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="shrink-0"
-          >
-            {isExpanded ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="shrink-0">
+                  <Info className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72" align="end">
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm">How to Earn Points</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Utensils className="h-4 w-4 text-green-500" />
+                      <span>Log food</span>
+                      <Badge variant="secondary" className="ml-auto text-xs">+10 pts</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Dumbbell className="h-4 w-4 text-blue-500" />
+                      <span>Log workout</span>
+                      <Badge variant="secondary" className="ml-auto text-xs">+50 pts</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Heart className="h-4 w-4 text-pink-500" />
+                      <span>Log biofeedback</span>
+                      <Badge variant="secondary" className="ml-auto text-xs">+10-20 pts</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Footprints className="h-4 w-4 text-purple-500" />
+                      <span>Hit step goals</span>
+                      <Badge variant="secondary" className="ml-auto text-xs">+10-50 pts</Badge>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t text-xs text-muted-foreground">
+                    <p className="font-medium mb-1">Streak Multipliers</p>
+                    <p>Build your streak to multiply all points!</p>
+                    <div className="flex gap-2 mt-1">
+                      <span>Day 3: 2x</span>
+                      <span>Day 7: 3x</span>
+                      <span>Day 14: 4x</span>
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="shrink-0"
+            >
+              {isExpanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
