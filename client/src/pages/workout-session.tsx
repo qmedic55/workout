@@ -245,16 +245,43 @@ export default function WorkoutSession() {
   const [showVideo, setShowVideo] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [sessionWorkout, setSessionWorkout] = useState<WorkoutTemplate | null>(null);
 
-  const { data: workout, isLoading } = useQuery<WorkoutTemplate>({
+  // Check for recommended workout from sessionStorage
+  useEffect(() => {
+    if (id === 'recommended') {
+      const stored = sessionStorage.getItem('activeWorkoutTemplate');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setSessionWorkout(parsed);
+          // Clear from sessionStorage
+          sessionStorage.removeItem('activeWorkoutTemplate');
+        } catch (e) {
+          console.error('Failed to parse workout template:', e);
+          sessionStorage.removeItem('activeWorkoutTemplate');
+          setLocation('/workouts');
+        }
+      } else {
+        // No stored workout, redirect back
+        setLocation('/workouts');
+      }
+    }
+  }, [id, setLocation]);
+
+  const { data: apiWorkout, isLoading: isApiLoading } = useQuery<WorkoutTemplate>({
     queryKey: ["/api/workouts", id],
     queryFn: async () => {
       const response = await fetch("/api/workouts/" + id, { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch workout");
       return response.json();
     },
-    enabled: !!id,
+    enabled: !!id && id !== 'recommended',
   });
+
+  // Use sessionWorkout for recommended workouts, apiWorkout for regular ones
+  const workout = id === 'recommended' ? sessionWorkout : apiWorkout;
+  const isLoading = id === 'recommended' ? !sessionWorkout : isApiLoading;
 
   const exercises = (workout?.exercises as Exercise[]) || [];
   const currentExercise = exercises[state.currentExerciseIndex];

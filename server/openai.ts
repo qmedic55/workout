@@ -661,3 +661,108 @@ If you cannot identify any food in the image, respond with:
     model: modelUsed,
   };
 }
+
+// Workout recommendation parsing result
+export interface ParsedWorkoutExercise {
+  name: string;
+  sets: number;
+  reps: string;
+  rir?: number; // Reps in Reserve
+  notes?: string;
+}
+
+export interface ParsedWorkoutRecommendation {
+  hasWorkout: boolean;
+  name: string;
+  type: string; // "strength", "cardio", "flexibility", "recovery"
+  difficulty: string; // "beginner", "intermediate", "advanced"
+  durationMinutes: number;
+  exercises: ParsedWorkoutExercise[];
+  coachMessage?: string;
+}
+
+/**
+ * Parse an AI response to extract workout recommendations.
+ * Detects when the AI is suggesting/recommending a workout and extracts the structured details.
+ */
+export async function parseWorkoutFromAIResponse(aiResponse: string): Promise<ParsedWorkoutRecommendation> {
+  const systemPrompt = `You are a workout data extractor. Analyze the AI coach response and determine if it contains a workout recommendation with specific exercises.
+
+IMPORTANT: Only extract if the AI is RECOMMENDING/SUGGESTING a workout with specific exercises listed.
+Do NOT extract if the AI is just:
+- Talking about workouts in general
+- Asking about workout preferences
+- Discussing past workouts the user did
+
+EXTRACT WHEN the AI response contains:
+- A specific workout plan with exercises listed
+- Sets, reps, and exercise names
+- Phrases like "Here's your workout", "I recommend this workout", "Today's workout", "Try this routine"
+
+Return a JSON object:
+{
+  "hasWorkout": boolean (true if there's a concrete workout recommendation with exercises),
+  "name": "Workout name or generate one (e.g., 'Full Body Strength', 'Recovery Day Flow')",
+  "type": "strength" | "cardio" | "flexibility" | "recovery" | "hiit",
+  "difficulty": "beginner" | "intermediate" | "advanced",
+  "durationMinutes": estimated duration in minutes,
+  "exercises": [
+    {
+      "name": "Exercise name",
+      "sets": number of sets,
+      "reps": "rep range or description (e.g., '10-12', '30 sec', 'AMRAP')",
+      "rir": reps in reserve if mentioned (optional),
+      "notes": any form cues or modifications (optional)
+    }
+  ],
+  "coachMessage": "Brief summary of why this workout was recommended"
+}
+
+If no concrete workout is found, return:
+{
+  "hasWorkout": false,
+  "name": "",
+  "type": "strength",
+  "difficulty": "beginner",
+  "durationMinutes": 0,
+  "exercises": [],
+  "coachMessage": ""
+}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: AI_MODEL_LIGHT,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Extract workout data from this AI coach response:\n\n${aiResponse}` }
+      ],
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { hasWorkout: false, name: "", type: "strength", difficulty: "beginner", durationMinutes: 0, exercises: [], coachMessage: "" };
+    }
+
+    const parsed = JSON.parse(content);
+    return {
+      hasWorkout: parsed.hasWorkout || false,
+      name: parsed.name || "",
+      type: parsed.type || "strength",
+      difficulty: parsed.difficulty || "beginner",
+      durationMinutes: parsed.durationMinutes || 45,
+      exercises: (parsed.exercises || []).map((ex: any) => ({
+        name: ex.name || "",
+        sets: ex.sets || 3,
+        reps: ex.reps || "10-12",
+        rir: ex.rir,
+        notes: ex.notes,
+      })),
+      coachMessage: parsed.coachMessage || "",
+    };
+  } catch (error) {
+    console.error("Error parsing workout from AI response:", error);
+    return { hasWorkout: false, name: "", type: "strength", difficulty: "beginner", durationMinutes: 0, exercises: [], coachMessage: "" };
+  }
+}

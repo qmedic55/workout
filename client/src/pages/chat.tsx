@@ -1,14 +1,26 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
+import { useLocation } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Send, Bot, User, Sparkles, RefreshCw } from "lucide-react";
+import { Send, Bot, User, Sparkles, RefreshCw, Dumbbell, Play, X, Clock } from "lucide-react";
 import type { ChatMessage } from "@shared/schema";
+
+// Workout recommendation type from API
+interface WorkoutRecommendation {
+  name: string;
+  type: string;
+  difficulty: string;
+  durationMinutes: number;
+  exercises: Array<{ name: string; sets: number; reps: string; rir?: number; notes?: string }>;
+  coachMessage?: string;
+}
 
 interface Message {
   id: string;
@@ -119,11 +131,75 @@ function ChatSkeleton() {
   );
 }
 
+function WorkoutRecommendationCard({
+  workout,
+  onStart,
+  onDismiss
+}: {
+  workout: WorkoutRecommendation;
+  onStart: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Card className="mb-4 border-primary/20 bg-primary/5">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-full bg-primary/10">
+              <Dumbbell className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">{workout.name}</CardTitle>
+              <CardDescription className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs">{workout.type}</Badge>
+                <Badge variant="outline" className="text-xs">{workout.difficulty}</Badge>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Clock className="h-3 w-3" />
+                  {workout.durationMinutes} min
+                </span>
+              </CardDescription>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onDismiss} className="h-8 w-8">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {workout.coachMessage && (
+          <p className="text-sm text-muted-foreground mb-3">{workout.coachMessage}</p>
+        )}
+        <div className="space-y-1 mb-3">
+          <p className="text-xs font-medium text-muted-foreground">Exercises ({workout.exercises.length}):</p>
+          <div className="flex flex-wrap gap-1">
+            {workout.exercises.slice(0, 5).map((ex, i) => (
+              <Badge key={i} variant="outline" className="text-xs">
+                {ex.name}
+              </Badge>
+            ))}
+            {workout.exercises.length > 5 && (
+              <Badge variant="outline" className="text-xs">
+                +{workout.exercises.length - 5} more
+              </Badge>
+            )}
+          </div>
+        </div>
+        <Button onClick={onStart} className="w-full gap-2">
+          <Play className="h-4 w-4" />
+          Start This Workout
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Chat() {
   const [input, setInput] = useState("");
   const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
+  const [currentWorkout, setCurrentWorkout] = useState<WorkoutRecommendation | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [, setLocation] = useLocation();
 
   const { data: messages = [], isLoading } = useQuery<ChatMessage[]>({
     queryKey: ["/api/chat/messages"],
@@ -167,6 +243,11 @@ export default function Chat() {
           queryClient.invalidateQueries({ queryKey: ["/api/meal-templates"] });
         }
       }
+
+      // If AI recommended a workout, store it
+      if (data.workoutRecommendation) {
+        setCurrentWorkout(data.workoutRecommendation);
+      }
     },
     onError: () => {
       setPendingMessage(null);
@@ -209,6 +290,20 @@ export default function Chat() {
     }
   }, [messages, pendingMessage, sendMessageMutation.isPending]);
 
+  // Handle starting the recommended workout
+  const handleStartWorkout = () => {
+    if (currentWorkout) {
+      // Store workout data in sessionStorage for the workouts page to pick up
+      sessionStorage.setItem('recommendedWorkout', JSON.stringify(currentWorkout));
+      setLocation('/workouts');
+    }
+  };
+
+  // Handle dismissing the workout recommendation
+  const handleDismissWorkout = () => {
+    setCurrentWorkout(null);
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="border-b p-4">
@@ -229,6 +324,17 @@ export default function Chat() {
           </Button>
         </div>
       </div>
+
+      {/* Workout recommendation card - shown at top when AI recommends a workout */}
+      {currentWorkout && (
+        <div className="px-4 pt-4">
+          <WorkoutRecommendationCard
+            workout={currentWorkout}
+            onStart={handleStartWorkout}
+            onDismiss={handleDismissWorkout}
+          />
+        </div>
+      )}
 
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         {isLoading ? (

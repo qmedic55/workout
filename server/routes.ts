@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput, openai, analyzePhotoFood } from "./openai";
+import { generateMentorResponse, calculateTargets, parseNaturalLanguageInput, openai, analyzePhotoFood, parseWorkoutFromAIResponse } from "./openai";
 import { generateInsights, generateDayOneInsight, generateFirstWeekReport } from "./insights";
 import { evaluatePhaseTransition, executePhaseTransition } from "./phaseTransition";
 import { searchUSDAFoods } from "./foodApi";
@@ -1562,6 +1562,33 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         }
       }
 
+      // Parse AI response for workout recommendations
+      let workoutRecommendation: {
+        name: string;
+        type: string;
+        difficulty: string;
+        durationMinutes: number;
+        exercises: Array<{ name: string; sets: number; reps: string; rir?: number; notes?: string }>;
+        coachMessage?: string;
+      } | undefined;
+
+      try {
+        const parsedWorkout = await parseWorkoutFromAIResponse(aiResult.response);
+        if (parsedWorkout.hasWorkout && parsedWorkout.exercises.length > 0) {
+          console.log("[Workout Parser] Found workout recommendation:", parsedWorkout.name, "with", parsedWorkout.exercises.length, "exercises");
+          workoutRecommendation = {
+            name: parsedWorkout.name,
+            type: parsedWorkout.type,
+            difficulty: parsedWorkout.difficulty,
+            durationMinutes: parsedWorkout.durationMinutes,
+            exercises: parsedWorkout.exercises,
+            coachMessage: parsedWorkout.coachMessage,
+          };
+        }
+      } catch (workoutParseError) {
+        console.error("Error parsing workout recommendation (non-fatal):", workoutParseError);
+      }
+
       // Return response with metadata about changes AND logged data
       res.json({
         ...assistantMessage,
@@ -1579,6 +1606,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
           mealTemplateCreated: createdMealTemplate,
           autoDetectedMealTemplate: autoDetectedTemplate,
         },
+        // Include workout recommendation if AI suggested one
+        workoutRecommendation,
       });
     } catch (error) {
       console.error("Error in chat:", error);

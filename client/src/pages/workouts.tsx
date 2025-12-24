@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format, subDays, addDays, isToday } from "date-fns";
@@ -9,10 +9,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3, History, CalendarIcon, ChevronLeft, Play } from "lucide-react";
+import { Dumbbell, Clock, Target, ChevronRight, Info, Flame, Zap, BarChart3, History, CalendarIcon, ChevronLeft, Play, Sparkles, X } from "lucide-react";
 import { WorkoutAnalytics } from "@/components/workout-analytics";
 import { RestDayCard } from "@/components/rest-day-card";
 import type { WorkoutTemplate, ExerciseLog } from "@shared/schema";
+
+// Type for AI-recommended workout from chat
+interface RecommendedWorkout {
+  name: string;
+  type: string;
+  difficulty: string;
+  durationMinutes: number;
+  exercises: Array<{ name: string; sets: number; reps: string; rir?: number; notes?: string }>;
+  coachMessage?: string;
+}
 
 const defaultWorkouts: WorkoutTemplate[] = [
   {
@@ -283,6 +293,78 @@ function WorkoutsSkeleton() {
   );
 }
 
+// Card for AI-recommended workout from chat
+function RecommendedWorkoutCard({
+  workout,
+  onStart,
+  onDismiss,
+}: {
+  workout: RecommendedWorkout;
+  onStart: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Card className="border-primary/30 bg-gradient-to-r from-primary/5 to-primary/10 shadow-lg">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-full bg-primary/20">
+              <Sparkles className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-primary">AI Recommended for Today</p>
+              <CardTitle className="text-xl">{workout.name}</CardTitle>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onDismiss} className="h-8 w-8">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        {workout.coachMessage && (
+          <CardDescription className="mt-2 italic">"{workout.coachMessage}"</CardDescription>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge className="bg-primary/20 text-primary" variant="secondary">
+            {workout.type}
+          </Badge>
+          <Badge variant="outline">{workout.difficulty}</Badge>
+          <Badge variant="outline" className="gap-1">
+            <Clock className="h-3 w-3" />
+            {workout.durationMinutes} min
+          </Badge>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-muted-foreground">
+            Exercises ({workout.exercises.length}):
+          </p>
+          <div className="grid gap-2">
+            {workout.exercises.map((ex, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between p-2 rounded-md bg-background/60"
+              >
+                <span className="text-sm font-medium">{ex.name}</span>
+                <span className="text-sm text-muted-foreground">
+                  {ex.sets} × {ex.reps}
+                  {ex.rir !== undefined && ` @ RIR ${ex.rir}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Button size="lg" className="w-full gap-2" onClick={onStart}>
+          <Play className="h-5 w-5" />
+          Start This Workout
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function WorkoutHistory() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const dateStr = format(selectedDate, "yyyy-MM-dd");
@@ -437,13 +519,57 @@ function WorkoutHistory() {
 
 export default function Workouts() {
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutTemplate | null>(null);
+  const [recommendedWorkout, setRecommendedWorkout] = useState<RecommendedWorkout | null>(null);
+  const [, setLocation] = useLocation();
 
   const { data: workouts = defaultWorkouts, isLoading } = useQuery<WorkoutTemplate[]>({
     queryKey: ["/api/workouts"],
   });
 
+  // Check for recommended workout from chat on mount
+  useEffect(() => {
+    const stored = sessionStorage.getItem('recommendedWorkout');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setRecommendedWorkout(parsed);
+        // Clear from sessionStorage so it doesn't persist on refresh
+        sessionStorage.removeItem('recommendedWorkout');
+      } catch (e) {
+        console.error('Failed to parse recommended workout:', e);
+        sessionStorage.removeItem('recommendedWorkout');
+      }
+    }
+  }, []);
+
+  const handleStartRecommendedWorkout = () => {
+    if (recommendedWorkout) {
+      // Convert recommended workout to a workout template format for the session
+      const workoutAsTemplate: WorkoutTemplate = {
+        id: `recommended-${Date.now()}`,
+        name: recommendedWorkout.name,
+        description: recommendedWorkout.coachMessage || 'AI-recommended workout based on your goals and current state.',
+        type: recommendedWorkout.type.toLowerCase() as "strength" | "cardio" | "flexibility" | "recovery",
+        difficulty: recommendedWorkout.difficulty.toLowerCase() as "beginner" | "intermediate" | "advanced",
+        durationMinutes: recommendedWorkout.durationMinutes,
+        targetAgeGroup: "40+",
+        phases: ["recovery", "recomp", "cutting"],
+        phasePriority: 10,
+        exercises: recommendedWorkout.exercises,
+        createdAt: new Date(),
+      };
+      // Store the workout template for the session page
+      sessionStorage.setItem('activeWorkoutTemplate', JSON.stringify(workoutAsTemplate));
+      setLocation(`/workout-session/recommended`);
+    }
+  };
+
+  const handleDismissRecommendedWorkout = () => {
+    setRecommendedWorkout(null);
+  };
+
   const allWorkouts = workouts.length > 0 ? workouts : defaultWorkouts;
-  
+
   const strengthWorkouts = allWorkouts.filter(w => w.type === "strength");
   const cardioWorkouts = allWorkouts.filter(w => w.type === "cardio");
   const recoveryWorkouts = allWorkouts.filter(w => w.type === "recovery" || w.type === "flexibility");
@@ -464,6 +590,15 @@ export default function Workouts() {
           Evidence-based training programs designed for adults 40+ focusing on strength, mobility, and longevity.
         </p>
       </div>
+
+      {/* AI Recommended Workout - shown at top when coming from chat */}
+      {recommendedWorkout && (
+        <RecommendedWorkoutCard
+          workout={recommendedWorkout}
+          onStart={handleStartRecommendedWorkout}
+          onDismiss={handleDismissRecommendedWorkout}
+        />
+      )}
 
       {/* Rest Day Recommendation Banner */}
       <RestDayCard variant="compact" showWhenReady />
