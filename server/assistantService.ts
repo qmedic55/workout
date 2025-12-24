@@ -178,7 +178,7 @@ export async function sendMessage(
   const startTime = Date.now();
 
   while (Date.now() - startTime < maxWaitTime) {
-    const runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+    const runStatus = await (openai.beta.threads.runs.retrieve as any)(threadId, run.id);
 
     if (runStatus.status === "completed") {
       // Get the latest message
@@ -276,7 +276,7 @@ Please acknowledge that you've received this information and will remember it fo
   const startTime = Date.now();
 
   while (Date.now() - startTime < maxWaitTime) {
-    const runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+    const runStatus = await (openai.beta.threads.runs.retrieve as any)(threadId, run.id);
     if (runStatus.status === "completed" || runStatus.status === "failed") {
       break;
     }
@@ -370,7 +370,7 @@ export async function deleteUserThread(userId: string): Promise<void> {
 
   if (user?.assistantThreadId) {
     try {
-      await openai.beta.threads.del(user.assistantThreadId);
+      await (openai.beta.threads as any).del(user.assistantThreadId);
     } catch (e) {
       console.error("Error deleting thread:", e);
     }
