@@ -149,8 +149,26 @@ export function DailyGuidance() {
 
   const handleStartWorkout = () => {
     if (guidance?.todaysPlan?.workout?.specificPlan) {
-      const workoutData = encodeURIComponent(JSON.stringify(guidance.todaysPlan.workout.specificPlan));
-      navigate(`/workout-session?workout=${workoutData}`);
+      const plan = guidance.todaysPlan.workout.specificPlan;
+      // Convert daily guidance workout plan to workout template format
+      const workoutTemplate = {
+        id: `guidance-${Date.now()}`,
+        name: plan.title || 'Today\'s Workout',
+        description: guidance.todaysPlan.workout.message || 'AI-recommended workout based on your daily guidance.',
+        type: guidance.todaysPlan.workout.type?.toLowerCase().includes('strength') ? 'strength'
+            : guidance.todaysPlan.workout.type?.toLowerCase().includes('cardio') ? 'cardio'
+            : 'recovery',
+        difficulty: 'beginner',
+        durationMinutes: parseInt(plan.duration) || 30,
+        targetAgeGroup: '40+',
+        phases: ['recovery', 'recomp', 'cutting'],
+        phasePriority: 10,
+        exercises: plan.exercises || [],
+        createdAt: new Date().toISOString(),
+      };
+      // Store in sessionStorage for the workout session page
+      sessionStorage.setItem('activeWorkoutTemplate', JSON.stringify(workoutTemplate));
+      navigate('/workout-session/recommended');
     }
   };
 
