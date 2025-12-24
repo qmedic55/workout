@@ -8,6 +8,7 @@
 import OpenAI from "openai";
 import type { UserProfile, DailyLog, FoodEntry, ExerciseLog, OnboardingAssessment, HealthNote, Goal } from "@shared/schema";
 import { format, subDays } from "date-fns";
+import { getTodayInTimezone, getYesterdayInTimezone, getSafeTimezone, formatDateInTimezone } from "./timezone";
 import {
   needsThreadInitialization,
   initializeUserThread,
@@ -226,7 +227,8 @@ function summarizeYearlyHistory(
   let currentStreak = 0;
   let bestStreak = 0;
   let tempStreak = 0;
-  const today = format(new Date(), "yyyy-MM-dd");
+  const userTimezone = getSafeTimezone(profile.timezone);
+  const today = getTodayInTimezone(userTimezone);
 
   for (let i = 0; i < allDates.length; i++) {
     if (i === 0) {
@@ -355,12 +357,15 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
     self.findIndex(l => l.logDate === log.logDate) === index
   ).length;
 
-  // Check if user worked out yesterday
-  const yesterdayDate = format(subDays(new Date(), 1), "yyyy-MM-dd");
+  // Use user's timezone for date calculations
+  const userTimezone = getSafeTimezone(profile.timezone);
+
+  // Check if user worked out yesterday (using user's timezone)
+  const yesterdayDate = getYesterdayInTimezone(userTimezone);
   const workedOutYesterday = recentExerciseLogs.some(log => log.logDate === yesterdayDate);
 
-  // Check if user worked out today
-  const todayDate = format(new Date(), "yyyy-MM-dd");
+  // Check if user worked out today (using user's timezone)
+  const todayDate = getTodayInTimezone(userTimezone);
   const workedOutToday = recentExerciseLogs.some(log => log.logDate === todayDate);
 
   // Get average sleep from recent logs
@@ -369,10 +374,16 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
     ? logsWithSleep.reduce((sum, l) => sum + (l.sleepHours || 0), 0) / logsWithSleep.length
     : null;
 
-  // Get current date info
+  // Get current date info in user's timezone
   const now = new Date();
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  // Get timezone-aware day info
+  const dayOfWeekInTimezone = formatDateInTimezone(now, userTimezone, "EEEE");
+  const dayNumberInTimezone = parseInt(formatDateInTimezone(now, userTimezone, "d"), 10);
+  const monthNameInTimezone = formatDateInTimezone(now, userTimezone, "MMMM");
+  const dayIndexInTimezone = parseInt(formatDateInTimezone(now, userTimezone, "i"), 10) % 7; // 0 = Sunday
 
   // Build context for AI
   const contextData = {
@@ -387,11 +398,11 @@ export async function generateDailyGuidance(context: GuidanceContext): Promise<D
       coachingTone: profile.coachingTone || "empathetic",
     },
     today: {
-      date: format(now, "yyyy-MM-dd"),
-      dayOfWeek: dayNames[now.getDay()],
-      formattedDate: `${dayNames[now.getDay()]}, ${monthNames[now.getMonth()]} ${now.getDate()}`,
+      date: todayDate,
+      dayOfWeek: dayOfWeekInTimezone,
+      formattedDate: `${dayOfWeekInTimezone}, ${monthNameInTimezone} ${dayNumberInTimezone}`,
       currentHour,
-      isWeekend: [0, 6].includes(now.getDay()),
+      isWeekend: [0, 6].includes(dayIndexInTimezone),
       loggedCalories: todayNutrition.calories,
       loggedProtein: todayNutrition.protein,
       loggedCarbs: todayNutrition.carbs,

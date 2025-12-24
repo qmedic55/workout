@@ -105,14 +105,16 @@ async function checkStreakMilestones(userId: string): Promise<void> {
     const profile = await storage.getProfile(userId);
     if (!profile) return;
 
-    // Get logs for last 7 days
-    const today = new Date();
-    console.log(`[Streak Check] Server time: ${today.toISOString()}, formatted as: ${format(today, "yyyy-MM-dd")}`);
+    // Use user's timezone for date calculations
+    const userTimezone = getSafeTimezone(profile.timezone);
+    const todayDate = getTodayInTimezone(userTimezone);
+    console.log(`[Streak Check] User timezone: ${userTimezone}, today in that timezone: ${todayDate}`);
 
     const logs: { date: string; hasActivity: boolean; details: { dailyLog: boolean; foodCount: number; exerciseCount: number } }[] = [];
 
+    // Get logs for last 7 days in user's timezone
     for (let i = 0; i < 7; i++) {
-      const date = format(subDays(today, i), "yyyy-MM-dd");
+      const date = getDaysAgoInTimezone(userTimezone, i);
       const dailyLog = await storage.getDailyLog(userId, date);
       const foodEntries = await storage.getFoodEntries(userId, date);
       const exerciseLogs = await storage.getExerciseLogs(userId, date);
