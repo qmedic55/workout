@@ -107,6 +107,8 @@ async function checkStreakMilestones(userId: string): Promise<void> {
 
     // Get logs for last 7 days
     const today = new Date();
+    console.log(`[Streak Check] Server time: ${today.toISOString()}, formatted as: ${format(today, "yyyy-MM-dd")}`);
+
     const logs: { date: string; hasActivity: boolean; details: { dailyLog: boolean; foodCount: number; exerciseCount: number } }[] = [];
 
     for (let i = 0; i < 7; i++) {
@@ -146,6 +148,11 @@ async function checkStreakMilestones(userId: string): Promise<void> {
     const existingDay2 = await storage.getUserMilestone(userId, "day_2_streak");
     const existingDay3 = await storage.getUserMilestone(userId, "day_3");
     console.log(`[Streak Check] User ${userId} existing milestones - day_2_streak: ${!!existingDay2}, day_3: ${!!existingDay3}`);
+
+    // If streak >= 2 but day_2_streak doesn't exist, log why we're creating it
+    if (streak >= 2 && !existingDay2) {
+      console.log(`[Streak Check] Creating day_2_streak milestone for user ${userId}`);
+    }
 
     // Day 2 streak milestone
     if (streak >= 2) {
