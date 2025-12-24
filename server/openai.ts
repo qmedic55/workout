@@ -305,12 +305,20 @@ EXTRACT THE FOLLOWING WHEN PRESENT:
    - Lifestyle factors worth remembering (busy week, traveling, etc.)
    - General context that's useful but not directly trackable
 
-6. **mealTemplateIntent**: Detect if the user is describing a RECURRING or USUAL meal (not just logging what they ate):
-   - shouldCreateTemplate: true ONLY if they use words like "usually", "typically", "always", "every day", "my usual", "I normally", "for breakfast I always have", "my go-to", "save this as", "create a template"
-   - templateName: A short descriptive name for the template (e.g., "Morning Protein Shake", "Work Lunch", "Post-Workout Meal")
+6. **mealTemplateIntent**: Detect if the user is describing a RECURRING or USUAL meal OR explicitly asking to CREATE a template:
+   - shouldCreateTemplate: true if they:
+     * Use words indicating recurring meals: "usually", "typically", "always", "every day", "my usual", "I normally", "for breakfast I always have", "my go-to"
+     * OR explicitly ask to create a template: "save this as", "create a template", "make a template", "add a template", "save as template", "create a meal template", "make a meal template called", "save a template"
+   - templateName: A short descriptive name for the template. Use the name they provide OR create one (e.g., "Morning Protein Shake", "Work Lunch", "Post-Workout Meal")
    - mealType: The meal type for this template
    - IMPORTANT: If they just say "I had eggs for breakfast", that's NOT a template - they're logging what they ate
-   - Template examples: "I usually have 3 eggs and toast for breakfast", "My typical lunch is a chicken salad", "Save my morning shake - protein powder, banana, and almond milk"
+   - BUT if they say "Create a template called Breakfast with eggs and bacon", that IS a template request
+   - Template examples:
+     * "I usually have 3 eggs and toast for breakfast" -> shouldCreateTemplate: true
+     * "My typical lunch is a chicken salad" -> shouldCreateTemplate: true
+     * "Save my morning shake - protein powder, banana, and almond milk" -> shouldCreateTemplate: true
+     * "Create a meal template called Morning Fuel with eggs, toast, and coffee" -> shouldCreateTemplate: true
+     * "Make a template for my post-workout shake with protein and banana" -> shouldCreateTemplate: true
 
 EXAMPLES:
 

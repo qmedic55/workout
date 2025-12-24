@@ -1289,10 +1289,13 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
 
       // 5. Create meal template if user is describing a recurring meal
       let createdMealTemplate: { id: string; name: string } | undefined;
+      console.log("[Meal Template] NLP result mealTemplateIntent:", JSON.stringify(nlpResult.mealTemplateIntent));
+      console.log("[Meal Template] Foods count:", nlpResult.foods.length);
       if (nlpResult.mealTemplateIntent?.shouldCreateTemplate && nlpResult.foods.length > 0) {
         try {
           // Check if a similar template already exists
           const foodNames = nlpResult.foods.map(f => f.foodName);
+          console.log("[Meal Template] Checking for existing template with foods:", foodNames);
           const existingTemplate = await storage.findSimilarMealTemplate(
             userId,
             foodNames,
