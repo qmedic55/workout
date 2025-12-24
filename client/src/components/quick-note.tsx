@@ -90,6 +90,7 @@ export function QuickNote() {
         if (data.loggedData.dailyLogUpdated || data.loggedData.foodsLogged > 0 || data.loggedData.exercisesLogged > 0) {
           queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
           queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/milestones"] });
         }
 
         // Show toast for what was logged

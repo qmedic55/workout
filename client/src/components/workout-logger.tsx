@@ -225,6 +225,7 @@ function AddExerciseDialog({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/exercise-logs", date] });
+      queryClient.invalidateQueries({ queryKey: ["/api/milestones"] });
       setOpen(false);
       setName("");
       setSets(3);
@@ -346,6 +347,7 @@ export function WorkoutLogger({ date, onWorkoutChange }: WorkoutLoggerProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/exercise-logs", date] });
+      queryClient.invalidateQueries({ queryKey: ["/api/milestones"] });
       toast({
         title: "Workout Loaded",
         description: "Exercises have been added to your log.",

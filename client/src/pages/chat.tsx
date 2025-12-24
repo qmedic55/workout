@@ -160,6 +160,7 @@ export default function Chat() {
         if (data.loggedData.dailyLogUpdated || data.loggedData.foodsLogged > 0 || data.loggedData.exercisesLogged > 0) {
           queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
           queryClient.invalidateQueries({ queryKey: ["/api/daily-guidance"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/milestones"] });
         }
         // Invalidate meal templates if one was created
         if (data.loggedData.mealTemplateCreated || data.loggedData.autoDetectedMealTemplate) {

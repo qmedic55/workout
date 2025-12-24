@@ -128,6 +128,7 @@ export function PhotoFoodLogger({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/milestones"] });
       toast({
         title: "Food logged!",
         description: `${analyzedItems.filter(i => i.selected).length} item(s) added to your ${mealType}`,

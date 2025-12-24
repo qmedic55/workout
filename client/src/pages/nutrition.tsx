@@ -404,6 +404,7 @@ export default function Nutrition() {
       queryClient.invalidateQueries({ queryKey: ["/api/food-entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-logs/today"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily-logs", dateStr] });
+      queryClient.invalidateQueries({ queryKey: ["/api/milestones"] });
       form.reset({ mealType: selectedMeal, foodName: "", servingQuantity: 1 });
       toast({ title: "Food added", description: "Your food entry has been logged." });
     },
