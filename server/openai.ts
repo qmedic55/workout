@@ -3,9 +3,26 @@ import type { UserProfile, OnboardingAssessment } from "@shared/schema";
 import { buildMentorSystemPrompt, type MentorPromptContext } from "./prompts/mentor-system-prompt";
 import { AI_MODEL_PRIMARY, AI_MODEL_FALLBACK, AI_MODEL_VISION, AI_MODEL_VISION_FALLBACK, AI_MODEL_LIGHT } from "./aiModels";
 
-// Singleton OpenAI client - reused across all requests for better performance
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+// Lazy-initialized OpenAI client - doesn't throw at module load time
+let openaiInstance: OpenAI | null = null;
+
+function getOpenAI(): OpenAI {
+  if (!openaiInstance) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY environment variable is required");
+    }
+    openaiInstance = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+  }
+  return openaiInstance;
+}
+
+// Export a proxy that lazily initializes the client
+export const openai = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return (getOpenAI() as any)[prop];
+  }
 });
 
 // Re-export the context type for use in routes

@@ -4,8 +4,26 @@ import { users } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
 import { AI_MODEL_ASSISTANT } from "./aiModels";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Lazy-initialized OpenAI client for assistants
+let openaiInstance: OpenAI | null = null;
+
+function getOpenAI(): OpenAI {
+  if (!openaiInstance) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY environment variable is required");
+    }
+    openaiInstance = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openaiInstance;
+}
+
+// Use a getter pattern for the client
+const openai = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return (getOpenAI() as any)[prop];
+  }
 });
 
 // VitalPath Assistant ID - will be created once and stored

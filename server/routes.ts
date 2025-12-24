@@ -107,7 +107,7 @@ async function checkStreakMilestones(userId: string): Promise<void> {
 
     // Get logs for last 7 days
     const today = new Date();
-    const logs: { date: string; hasActivity: boolean }[] = [];
+    const logs: { date: string; hasActivity: boolean; details: { dailyLog: boolean; foodCount: number; exerciseCount: number } }[] = [];
 
     for (let i = 0; i < 7; i++) {
       const date = format(subDays(today, i), "yyyy-MM-dd");
@@ -116,8 +116,19 @@ async function checkStreakMilestones(userId: string): Promise<void> {
       const exerciseLogs = await storage.getExerciseLogs(userId, date);
 
       const hasActivity = !!dailyLog || foodEntries.length > 0 || exerciseLogs.length > 0;
-      logs.push({ date, hasActivity });
+      logs.push({
+        date,
+        hasActivity,
+        details: {
+          dailyLog: !!dailyLog,
+          foodCount: foodEntries.length,
+          exerciseCount: exerciseLogs.length,
+        }
+      });
     }
+
+    // Debug log
+    console.log(`[Streak Check] User ${userId} logs:`, JSON.stringify(logs, null, 2));
 
     // Check consecutive days from today
     let streak = 0;
@@ -128,6 +139,13 @@ async function checkStreakMilestones(userId: string): Promise<void> {
         break;
       }
     }
+
+    console.log(`[Streak Check] User ${userId} streak: ${streak}`);
+
+    // Check existing milestones
+    const existingDay2 = await storage.getUserMilestone(userId, "day_2_streak");
+    const existingDay3 = await storage.getUserMilestone(userId, "day_3");
+    console.log(`[Streak Check] User ${userId} existing milestones - day_2_streak: ${!!existingDay2}, day_3: ${!!existingDay3}`);
 
     // Day 2 streak milestone
     if (streak >= 2) {

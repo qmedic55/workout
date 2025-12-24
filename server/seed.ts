@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, isDatabaseConfigured } from "./db";
 import { workoutTemplates, educationalContent, foodDatabase } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
@@ -610,6 +610,12 @@ const foodDatabaseData = [
 ];
 
 export async function seedDatabase() {
+  // Skip seeding if database is not configured
+  if (!isDatabaseConfigured()) {
+    console.log("DATABASE_URL not set, skipping database seeding");
+    return;
+  }
+
   console.log("Seeding database...");
 
   try {
