@@ -372,21 +372,14 @@ function OnboardingV2Content() {
         sex: data.sex,
         heightCm: data.heightCm,
         currentWeightKg: data.currentWeightKg,
-        targetWeightKg: data.goal === "lose_weight" ? data.currentWeightKg * 0.9 : undefined,
-        activityLevel: "sedentary",
-        exerciseFrequency: "none",
-        dietingHistory: "no",
-        sleepQuality: "fair",
+        targetWeightKg: data.goal === "lose_weight" ? Math.round(data.currentWeightKg * 0.9) : undefined,
+        activityLevel: "sedentary" as const,
+        hasBeenDietingRecently: false,
+        sleepQuality: 5, // Middle of 1-10 scale
         stressLevel: 5,
-        coachingTone: "empathetic",
+        coachingTone: "empathetic" as const,
         enableNotifications: true,
         hasHealthConditions: false,
-        // Pass calculated values if available
-        ...(calculated && {
-          targetCalories: calculated.targetCalories,
-          proteinGrams: calculated.proteinGrams,
-          recommendedPhase: calculated.recommendedPhase,
-        }),
       };
 
       const response = await apiRequest("POST", "/api/onboarding", transformedData);
