@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, useEffect, ReactNode, useMemo } from "react";
 import { GoalType } from "./GoalCard";
+import { PersonalityData, MotivationStyle, PastExperience, BiggestChallenge } from "./PersonalityQuestions";
 
 // Types
 export interface OnboardingData {
@@ -9,6 +10,10 @@ export interface OnboardingData {
   heightCm: number;
   currentWeightKg: number;
   goal: GoalType | null;
+  // Personality
+  motivationStyle: MotivationStyle | null;
+  pastExperience: PastExperience | null;
+  biggestChallenge: BiggestChallenge | null;
 }
 
 export interface CalculatedTargets {
@@ -21,7 +26,7 @@ export interface CalculatedTargets {
 }
 
 export interface OnboardingState {
-  screen: 1 | 2 | 3 | 4;
+  screen: 1 | 2 | 3 | 4 | 5;
   data: OnboardingData;
   calculated: CalculatedTargets | null;
   isReturningUser: boolean;
@@ -32,9 +37,10 @@ type OnboardingAction =
   | { type: "SET_NAME"; payload: string }
   | { type: "SET_METRICS"; payload: Partial<OnboardingData> }
   | { type: "SET_GOAL"; payload: GoalType }
+  | { type: "SET_PERSONALITY"; payload: Partial<PersonalityData> }
   | { type: "NEXT_SCREEN" }
   | { type: "PREV_SCREEN" }
-  | { type: "GO_TO_SCREEN"; payload: 1 | 2 | 3 | 4 }
+  | { type: "GO_TO_SCREEN"; payload: 1 | 2 | 3 | 4 | 5 }
   | { type: "SET_CALCULATED"; payload: CalculatedTargets }
   | { type: "SET_PREFILL"; payload: { data: Partial<OnboardingData>; isReturning: boolean } }
   | { type: "RESET" };
@@ -51,6 +57,9 @@ const initialData: OnboardingData = {
   heightCm: 0,
   currentWeightKg: 0,
   goal: null,
+  motivationStyle: null,
+  pastExperience: null,
+  biggestChallenge: null,
 };
 
 const initialState: OnboardingState = {
@@ -69,7 +78,7 @@ function loadSavedState(): Partial<OnboardingState> {
 
     return {
       data: savedData ? JSON.parse(savedData) : undefined,
-      screen: savedScreen ? (parseInt(savedScreen) as 1 | 2 | 3 | 4) : undefined,
+      screen: savedScreen ? (parseInt(savedScreen) as 1 | 2 | 3 | 4 | 5) : undefined,
     };
   } catch {
     return {};
@@ -117,16 +126,22 @@ function onboardingReducer(state: OnboardingState, action: OnboardingAction): On
         data: { ...state.data, goal: action.payload },
       };
 
+    case "SET_PERSONALITY":
+      return {
+        ...state,
+        data: { ...state.data, ...action.payload },
+      };
+
     case "NEXT_SCREEN":
       return {
         ...state,
-        screen: Math.min(state.screen + 1, 4) as 1 | 2 | 3 | 4,
+        screen: Math.min(state.screen + 1, 5) as 1 | 2 | 3 | 4 | 5,
       };
 
     case "PREV_SCREEN":
       return {
         ...state,
-        screen: Math.max(state.screen - 1, 1) as 1 | 2 | 3 | 4,
+        screen: Math.max(state.screen - 1, 1) as 1 | 2 | 3 | 4 | 5,
       };
 
     case "GO_TO_SCREEN":
@@ -169,9 +184,10 @@ interface OnboardingContextValue {
   setName: (name: string) => void;
   setMetrics: (metrics: Partial<OnboardingData>) => void;
   setGoal: (goal: GoalType) => void;
+  setPersonality: (data: Partial<PersonalityData>) => void;
   nextScreen: () => void;
   prevScreen: () => void;
-  goToScreen: (screen: 1 | 2 | 3 | 4) => void;
+  goToScreen: (screen: 1 | 2 | 3 | 4 | 5) => void;
   setCalculated: (targets: CalculatedTargets) => void;
   setPrefill: (data: Partial<OnboardingData>, isReturning: boolean) => void;
   reset: () => void;
@@ -209,9 +225,10 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     setName: (name: string) => dispatch({ type: "SET_NAME", payload: name }),
     setMetrics: (metrics: Partial<OnboardingData>) => dispatch({ type: "SET_METRICS", payload: metrics }),
     setGoal: (goal: GoalType) => dispatch({ type: "SET_GOAL", payload: goal }),
+    setPersonality: (data: Partial<PersonalityData>) => dispatch({ type: "SET_PERSONALITY", payload: data }),
     nextScreen: () => dispatch({ type: "NEXT_SCREEN" }),
     prevScreen: () => dispatch({ type: "PREV_SCREEN" }),
-    goToScreen: (screen: 1 | 2 | 3 | 4) => dispatch({ type: "GO_TO_SCREEN", payload: screen }),
+    goToScreen: (screen: 1 | 2 | 3 | 4 | 5) => dispatch({ type: "GO_TO_SCREEN", payload: screen }),
     setCalculated: (targets: CalculatedTargets) => dispatch({ type: "SET_CALCULATED", payload: targets }),
     setPrefill: (data: Partial<OnboardingData>, isReturning: boolean) =>
       dispatch({ type: "SET_PREFILL", payload: { data, isReturning } }),
@@ -238,7 +255,14 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
           // Screen 3 needs a goal selected
           return state.data.goal !== null;
         case 4:
-          // Screen 4 needs calculations done
+          // Screen 4 needs all personality questions answered
+          return (
+            state.data.motivationStyle !== null &&
+            state.data.pastExperience !== null &&
+            state.data.biggestChallenge !== null
+          );
+        case 5:
+          // Screen 5 needs calculations done
           return state.calculated !== null;
         default:
           return false;

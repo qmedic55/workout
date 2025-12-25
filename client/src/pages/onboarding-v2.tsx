@@ -16,6 +16,7 @@ import { ChatBubble } from "@/components/onboarding/ChatBubble";
 import { GoalGrid, GoalType, getGoalAcknowledgment } from "@/components/onboarding/GoalCard";
 import { InsightCard, getInsightExplanation } from "@/components/onboarding/InsightCard";
 import { CompactForm } from "@/components/onboarding/CompactForm";
+import { PersonalityQuestions, isPersonalityComplete, suggestCoachingTone } from "@/components/onboarding/PersonalityQuestions";
 import {
   OnboardingProvider,
   useOnboarding,
@@ -266,8 +267,71 @@ function Screen3({ onContinue }: { onContinue: () => void }) {
   );
 }
 
-// Screen 4: First Insight
-function Screen4({ onComplete }: { onComplete: () => void }) {
+// Screen 4: About You (Personality)
+function Screen4({ onContinue }: { onContinue: () => void }) {
+  const { state, setPersonality, canProceedFromScreen } = useOnboarding();
+  const [showQuestions, setShowQuestions] = useState(false);
+
+  const introText = state.isReturningUser
+    ? "Just a few quick questions to help me personalize your experience better:"
+    : "I'd love to get to know you a bit better. Just 3 quick questions:";
+
+  return (
+    <div className="flex flex-col min-h-[70vh] px-6 py-4">
+      <div className="flex items-start gap-3 mb-6">
+        <CoachAvatar state="idle" size="sm" />
+        <div className="flex-1 pt-1">
+          <TypewriterText
+            text={introText}
+            speed={25}
+            onComplete={() => setShowQuestions(true)}
+            className="text-sm text-foreground bg-muted px-4 py-3 rounded-2xl rounded-bl-md"
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <AnimatePresence>
+          {showQuestions && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <PersonalityQuestions
+                data={{
+                  motivationStyle: state.data.motivationStyle,
+                  pastExperience: state.data.pastExperience,
+                  biggestChallenge: state.data.biggestChallenge,
+                }}
+                onChange={setPersonality}
+              />
+
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="mt-6"
+              >
+                <Button
+                  onClick={onContinue}
+                  disabled={!canProceedFromScreen(4)}
+                  className="w-full"
+                >
+                  Continue
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// Screen 5: First Insight
+function Screen5({ onComplete }: { onComplete: () => void }) {
   const { state, setCalculated } = useOnboarding();
   const [showInsights, setShowInsights] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -364,6 +428,13 @@ function OnboardingV2Content() {
     mutationFn: async () => {
       const { data, calculated } = state;
 
+      // Suggest coaching tone based on personality answers
+      const suggestedTone = suggestCoachingTone({
+        motivationStyle: data.motivationStyle,
+        pastExperience: data.pastExperience,
+        biggestChallenge: data.biggestChallenge,
+      });
+
       // Transform to backend format
       const transformedData = {
         firstName: data.firstName,
@@ -377,7 +448,7 @@ function OnboardingV2Content() {
         hasBeenDietingRecently: false,
         sleepQuality: 5, // Middle of 1-10 scale
         stressLevel: 5,
-        coachingTone: "empathetic" as const,
+        coachingTone: suggestedTone,
         enableNotifications: true,
         hasHealthConditions: false,
       };
@@ -429,11 +500,12 @@ function OnboardingV2Content() {
     submitMutation.mutate();
   };
 
-  const screens = {
+  const screens: Record<number, React.ReactNode> = {
     1: <Screen1 onContinue={handleNext} />,
     2: <Screen2 onContinue={handleNext} />,
     3: <Screen3 onContinue={handleNext} />,
-    4: <Screen4 onComplete={handleComplete} />,
+    4: <Screen4 onContinue={handleNext} />,
+    5: <Screen5 onComplete={handleComplete} />,
   };
 
   return (
@@ -452,7 +524,7 @@ function OnboardingV2Content() {
             </Button>
           )}
         </div>
-        <ProgressDots current={state.screen} total={4} />
+        <ProgressDots current={state.screen} total={5} />
         <div className="w-20" />
       </div>
 
