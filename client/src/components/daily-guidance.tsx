@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import {
   Clock,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
+import { CoachConversationModal } from "@/components/coach/CoachConversationModal";
 
 interface DailyGuidance {
   greeting: string;
@@ -139,13 +141,37 @@ function GuidanceSkeleton() {
   );
 }
 
+interface ProgressivePrompt {
+  promptKey: string;
+  question: string;
+  options: { value: string; label: string }[];
+  skipLabel: string;
+}
+
 export function DailyGuidance() {
   const [, navigate] = useLocation();
+  const [showPromptModal, setShowPromptModal] = useState(false);
+
   const { data: guidance, isLoading, error, refetch, isFetching } = useQuery<DailyGuidance>({
     queryKey: ["/api/daily-guidance"],
     staleTime: 5 * 60 * 1000, // Consider stale after 5 minutes
     refetchOnMount: true,
   });
+
+  // Fetch next progressive prompt (if any)
+  const { data: nextPrompt } = useQuery<ProgressivePrompt | null>({
+    queryKey: ["/api/onboarding/next-prompt"],
+    staleTime: 60 * 1000, // Check once per minute
+  });
+
+  // Show prompt modal automatically when there's a new prompt
+  useEffect(() => {
+    if (nextPrompt) {
+      // Small delay to let the page load first
+      const timer = setTimeout(() => setShowPromptModal(true), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [nextPrompt?.promptKey]);
 
   const handleStartWorkout = () => {
     if (guidance?.todaysPlan?.workout?.specificPlan) {
@@ -452,6 +478,15 @@ export function DailyGuidance() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {/* Progressive Prompt Modal */}
+      {nextPrompt && (
+        <CoachConversationModal
+          prompt={nextPrompt}
+          open={showPromptModal}
+          onClose={() => setShowPromptModal(false)}
+        />
       )}
     </div>
   );

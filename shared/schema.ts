@@ -50,6 +50,7 @@ export const userProfiles = pgTable("user_profiles", {
   healthConditionsNotes: text("health_conditions_notes"),
   
   onboardingCompleted: boolean("onboarding_completed").default(false),
+  hasSeenV2Onboarding: boolean("has_seen_v2_onboarding").default(false),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

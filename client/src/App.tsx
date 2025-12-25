@@ -20,6 +20,7 @@ import { useAppleAuth } from "@/hooks/use-apple-auth";
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Chat = lazy(() => import("@/pages/chat"));
 const Onboarding = lazy(() => import("@/pages/onboarding"));
+const OnboardingV2 = lazy(() => import("@/pages/onboarding-v2"));
 const DailyLog = lazy(() => import("@/pages/daily-log"));
 const Progress = lazy(() => import("@/pages/progress"));
 const Nutrition = lazy(() => import("@/pages/nutrition"));
@@ -49,7 +50,8 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/chat" component={Chat} />
-        <Route path="/onboarding" component={Onboarding} />
+        <Route path="/onboarding" component={OnboardingV2} />
+        <Route path="/onboarding-old" component={Onboarding} />
         <Route path="/daily-log" component={DailyLog} />
         <Route path="/progress" component={Progress} />
         <Route path="/nutrition" component={Nutrition} />

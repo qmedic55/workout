@@ -426,6 +426,41 @@ export async function registerRoutes(
 
   // ==================== Onboarding Routes ====================
 
+  // Get prefill data for returning users (v2 onboarding)
+  app.get("/api/onboarding/prefill", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const profile = await storage.getProfile(getUserId(req));
+      const assessment = await storage.getOnboardingAssessment(getUserId(req));
+
+      if (!profile || !assessment) {
+        res.json(null);
+        return;
+      }
+
+      // Infer goal from existing data
+      let inferredGoal: string = "feel_better";
+      if (profile.targetWeightKg && profile.currentWeightKg && profile.targetWeightKg < profile.currentWeightKg) {
+        inferredGoal = "lose_weight";
+      } else if (profile.currentPhase === "recovery") {
+        inferredGoal = "more_energy";
+      } else if (assessment.doesResistanceTraining) {
+        inferredGoal = "build_strength";
+      }
+
+      res.json({
+        firstName: profile.firstName || "",
+        age: profile.age || 0,
+        sex: profile.sex || "male",
+        heightCm: profile.heightCm || 0,
+        currentWeightKg: profile.currentWeightKg || 0,
+        goal: inferredGoal,
+      });
+    } catch (error) {
+      console.error("Error fetching onboarding prefill:", error);
+      res.status(500).json({ error: "Failed to fetch prefill data" });
+    }
+  });
+
   app.post("/api/onboarding", isAuthenticated, async (req: Request, res: Response) => {
     try {
       // Validate input
@@ -474,6 +509,7 @@ export async function registerRoutes(
         hasHealthConditions: data.hasHealthConditions,
         healthConditionsNotes: data.healthConditionsNotes,
         onboardingCompleted: true,
+        hasSeenV2Onboarding: true,
       };
 
       if (profile) {

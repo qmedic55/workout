@@ -376,9 +376,15 @@ export default function Dashboard() {
   });
 
   // Auto-redirect unonboarded users to onboarding
+  // Also redirect existing users who haven't seen the v2 onboarding
   useEffect(() => {
-    if (!profileLoading && profile && !profile.onboardingCompleted) {
-      navigate("/onboarding");
+    if (!profileLoading && profile) {
+      if (!profile.onboardingCompleted) {
+        navigate("/onboarding");
+      } else if (!(profile as any).hasSeenV2Onboarding) {
+        // Existing user who hasn't seen v2 onboarding - redirect with returning flag
+        navigate("/onboarding?returning=true");
+      }
     }
   }, [profile, profileLoading, navigate]);
 
