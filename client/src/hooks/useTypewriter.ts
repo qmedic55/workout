@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface UseTypewriterOptions {
   /** Speed in milliseconds per character */
@@ -31,67 +31,65 @@ export function useTypewriter(
   const [displayedText, setDisplayedText] = useState("");
   const [isComplete, setIsComplete] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [shouldStart, setShouldStart] = useState(false);
+
+  // Use refs to avoid stale closures
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const textRef = useRef(text);
+  textRef.current = text;
 
   const reset = useCallback(() => {
     setDisplayedText("");
     setIsComplete(false);
     setIsTyping(false);
-    setShouldStart(false);
-    // Trigger start after reset
-    setTimeout(() => setShouldStart(true), 0);
   }, []);
 
   const skip = useCallback(() => {
-    setDisplayedText(text);
+    setDisplayedText(textRef.current);
     setIsComplete(true);
     setIsTyping(false);
-    onComplete?.();
-  }, [text, onComplete]);
+    onCompleteRef.current?.();
+  }, []);
 
-  // Initial delay before starting
+  // Main typing effect - runs once per text change
   useEffect(() => {
-    const delayTimer = setTimeout(() => {
-      setShouldStart(true);
-    }, delay);
-
-    return () => clearTimeout(delayTimer);
-  }, [delay]);
-
-  // Main typing effect
-  useEffect(() => {
-    if (!shouldStart || isComplete) return;
-
-    let currentIndex = 0;
-    setIsTyping(true);
-    setDisplayedText("");
-
-    const typeNextChar = () => {
-      if (currentIndex < text.length) {
-        setDisplayedText(text.slice(0, currentIndex + 1));
-        currentIndex++;
-      } else {
-        setIsComplete(true);
-        setIsTyping(false);
-        onComplete?.();
-      }
-    };
-
-    const interval = setInterval(typeNextChar, speed);
-
-    return () => clearInterval(interval);
-  }, [text, speed, shouldStart, onComplete, isComplete]);
-
-  // Reset when text changes
-  useEffect(() => {
+    // Reset state for new text
     setDisplayedText("");
     setIsComplete(false);
     setIsTyping(false);
-    setShouldStart(false);
-    // Re-trigger start after a brief moment
-    const timer = setTimeout(() => setShouldStart(true), delay);
-    return () => clearTimeout(timer);
-  }, [text, delay]);
+
+    let currentIndex = 0;
+    let intervalId: NodeJS.Timeout | null = null;
+
+    // Start after delay
+    const delayTimer = setTimeout(() => {
+      setIsTyping(true);
+
+      const typeNextChar = () => {
+        if (currentIndex < text.length) {
+          currentIndex++;
+          setDisplayedText(text.slice(0, currentIndex));
+        } else {
+          if (intervalId) clearInterval(intervalId);
+          setIsComplete(true);
+          setIsTyping(false);
+          onCompleteRef.current?.();
+        }
+      };
+
+      // Type first character immediately, then continue at interval
+      typeNextChar();
+      if (text.length > 1) {
+        intervalId = setInterval(typeNextChar, speed);
+      }
+    }, delay);
+
+    return () => {
+      clearTimeout(delayTimer);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [text, speed, delay]);
 
   return {
     displayedText,
