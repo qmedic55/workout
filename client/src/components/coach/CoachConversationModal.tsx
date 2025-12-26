@@ -5,7 +5,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { Check, X, Dumbbell, Heart, Moon, Utensils, Activity, Stethoscope } from "lucide-react";
+import { Check, Dumbbell, Heart, Moon, Utensils, Activity, Stethoscope } from "lucide-react";
 
 import { CoachAvatar } from "@/components/onboarding/CoachAvatar";
 import { TypewriterText } from "@/components/onboarding/TypewriterText";
@@ -123,7 +123,13 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
       // Close modal after a brief delay to show the follow-up
       setTimeout(() => {
         onClose();
-      }, 1500);
+      }, 2000);
+    },
+    onError: () => {
+      // Still close modal on error after showing follow-up
+      setTimeout(() => {
+        onClose();
+      }, 2000);
     },
   });
 
@@ -150,14 +156,6 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
               <p className="font-medium">Your Coach</p>
               <p className="text-xs text-muted-foreground">has a quick question</p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="ml-auto"
-              onClick={onClose}
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
         </div>
 
