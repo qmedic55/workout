@@ -679,6 +679,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.post("/api/onboarding/progressive", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { promptKey, value, skipped } = req.body;
+      const userId = getUserId(req);
 
       if (!promptKey) {
         res.status(400).json({ error: "promptKey is required" });
@@ -686,22 +687,67 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       }
 
       // Check if already answered
-      const existing = await storage.getProgressivePrompt(getUserId(req), promptKey);
+      const existing = await storage.getProgressivePrompt(userId, promptKey);
       if (existing) {
         res.status(400).json({ error: "Prompt already answered" });
         return;
       }
 
+      // Handle daily check-in prompts - save to daily log
+      if (promptKey.startsWith("daily_") && !skipped && value?.selected) {
+        const today = new Date().toISOString().split("T")[0];
+        const selectedValue = value.selected;
+
+        // Map prompt responses to daily log fields
+        if (promptKey.startsWith("daily_sleep_")) {
+          // Convert sleep answer to hours
+          const sleepMapping: Record<string, number> = {
+            less_than_5: 4,
+            "5_to_6": 5.5,
+            "6_to_7": 6.5,
+            "7_to_8": 7.5,
+            more_than_8: 8.5,
+          };
+          const sleepHours = sleepMapping[selectedValue] || 7;
+          await storage.createOrUpdateDailyLog({
+            userId,
+            logDate: today,
+            sleepHours,
+          });
+        } else if (promptKey.startsWith("daily_mood_")) {
+          const moodRating = parseInt(selectedValue) || 5;
+          await storage.createOrUpdateDailyLog({
+            userId,
+            logDate: today,
+            moodRating,
+          });
+        } else if (promptKey.startsWith("daily_energy_")) {
+          const energyLevel = parseInt(selectedValue) || 5;
+          await storage.createOrUpdateDailyLog({
+            userId,
+            logDate: today,
+            energyLevel,
+          });
+        } else if (promptKey.startsWith("daily_stress_")) {
+          const stressLevel = parseInt(selectedValue) || 5;
+          await storage.createOrUpdateDailyLog({
+            userId,
+            logDate: today,
+            stressLevel,
+          });
+        }
+      }
+
       // Save the prompt response
       await storage.createProgressivePrompt({
-        userId: getUserId(req),
+        userId,
         promptKey,
         value: skipped ? null : value,
         skipped: skipped || false,
       });
 
       // Get the next prompt to return
-      const nextPrompt = await storage.getNextProgressivePrompt(getUserId(req));
+      const nextPrompt = await storage.getNextProgressivePrompt(userId);
 
       res.json({ success: true, nextPrompt });
     } catch (error) {

@@ -1344,6 +1344,79 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // After all onboarding prompts are done, check for proactive daily check-ins
+    // These prompts ask about today's biofeedback if not already collected
+    const today = new Date().toISOString().split("T")[0];
+    const todayLog = await this.getDailyLog(userId, today);
+
+    // Define proactive daily prompts based on missing data
+    const proactiveDailyPrompts = [
+      {
+        promptKey: `daily_sleep_${today}`,
+        check: () => !todayLog?.sleepHours,
+        question: "How did you sleep last night?",
+        options: [
+          { value: "less_than_5", label: "Less than 5 hours" },
+          { value: "5_to_6", label: "5-6 hours" },
+          { value: "6_to_7", label: "6-7 hours" },
+          { value: "7_to_8", label: "7-8 hours" },
+          { value: "more_than_8", label: "More than 8 hours" },
+        ],
+        skipLabel: "I'll log this later",
+      },
+      {
+        promptKey: `daily_mood_${today}`,
+        check: () => !todayLog?.moodRating,
+        question: "How are you feeling today?",
+        options: [
+          { value: "1", label: "Struggling" },
+          { value: "3", label: "Not great" },
+          { value: "5", label: "Okay" },
+          { value: "7", label: "Good" },
+          { value: "9", label: "Fantastic!" },
+        ],
+        skipLabel: "Skip for now",
+      },
+      {
+        promptKey: `daily_energy_${today}`,
+        check: () => !todayLog?.energyLevel,
+        question: "How's your energy level right now?",
+        options: [
+          { value: "1", label: "Very low" },
+          { value: "3", label: "Low" },
+          { value: "5", label: "Moderate" },
+          { value: "7", label: "Good" },
+          { value: "9", label: "Energized!" },
+        ],
+        skipLabel: "Maybe later",
+      },
+      {
+        promptKey: `daily_stress_${today}`,
+        check: () => !todayLog?.stressLevel,
+        question: "How's your stress level today?",
+        options: [
+          { value: "1", label: "Very calm" },
+          { value: "3", label: "Relaxed" },
+          { value: "5", label: "Moderate" },
+          { value: "7", label: "Stressed" },
+          { value: "9", label: "Very stressed" },
+        ],
+        skipLabel: "I'd rather not say",
+      },
+    ];
+
+    // Find the first proactive prompt that's needed and not already answered today
+    for (const prompt of proactiveDailyPrompts) {
+      if (prompt.check() && !answeredKeys.includes(prompt.promptKey)) {
+        return {
+          promptKey: prompt.promptKey,
+          question: prompt.question,
+          options: prompt.options,
+          skipLabel: prompt.skipLabel,
+        };
+      }
+    }
+
     return null;
   }
 

@@ -151,6 +151,7 @@ interface ProgressivePrompt {
 export function DailyGuidance() {
   const [, navigate] = useLocation();
   const [showPromptModal, setShowPromptModal] = useState(false);
+  const [dismissedPromptKey, setDismissedPromptKey] = useState<string | null>(null);
 
   const { data: guidance, isLoading, error, refetch, isFetching } = useQuery<DailyGuidance>({
     queryKey: ["/api/daily-guidance"],
@@ -161,17 +162,29 @@ export function DailyGuidance() {
   // Fetch next progressive prompt (if any)
   const { data: nextPrompt } = useQuery<ProgressivePrompt | null>({
     queryKey: ["/api/onboarding/next-prompt"],
-    staleTime: 60 * 1000, // Check once per minute
+    staleTime: 30 * 1000, // Check every 30 seconds for more responsive prompts
   });
 
-  // Show prompt modal automatically when there's a new prompt
+  // Show prompt modal automatically when there's a new prompt we haven't dismissed
   useEffect(() => {
-    if (nextPrompt) {
+    if (nextPrompt && nextPrompt.promptKey !== dismissedPromptKey) {
       // Small delay to let the page load first
       const timer = setTimeout(() => setShowPromptModal(true), 1500);
       return () => clearTimeout(timer);
     }
-  }, [nextPrompt?.promptKey]);
+  }, [nextPrompt?.promptKey, dismissedPromptKey]);
+
+  // Handle modal close - track dismissed prompt and refetch
+  const handlePromptModalClose = () => {
+    if (nextPrompt) {
+      setDismissedPromptKey(nextPrompt.promptKey);
+    }
+    setShowPromptModal(false);
+    // Refetch to get next prompt after a brief delay
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/onboarding/next-prompt"] });
+    }, 500);
+  };
 
   const handleStartWorkout = () => {
     if (guidance?.todaysPlan?.workout?.specificPlan) {
@@ -485,7 +498,7 @@ export function DailyGuidance() {
         <CoachConversationModal
           prompt={nextPrompt}
           open={showPromptModal}
-          onClose={() => setShowPromptModal(false)}
+          onClose={handlePromptModalClose}
         />
       )}
     </div>

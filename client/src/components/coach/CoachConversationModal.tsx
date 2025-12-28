@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, Variants } from "framer-motion";
 import { useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { Check, Dumbbell, Heart, Moon, Utensils, Activity, Stethoscope } from "lucide-react";
+import { Check, Dumbbell, Heart, Moon, Utensils, Activity, Stethoscope, Send, Smile, Zap, Brain, BedDouble } from "lucide-react";
 
 import { CoachAvatar } from "@/components/onboarding/CoachAvatar";
 import { TypewriterText } from "@/components/onboarding/TypewriterText";
@@ -74,6 +75,35 @@ const conversationalPrompts: Record<string, {
     icon: Moon,
     color: "bg-purple-100 border-purple-300 text-purple-700 dark:bg-purple-950/30 dark:border-purple-800 dark:text-purple-300",
   },
+  // Daily check-in prompts (proactive)
+  daily_sleep: {
+    coachMessage: "Good morning! How did you sleep last night? Rest is so important for your progress.",
+    followUpSuccess: "Thanks for letting me know! Sleep affects everything - energy, recovery, even appetite. I'll factor this in.",
+    followUpSkip: "No problem! You can always log your sleep later.",
+    icon: BedDouble,
+    color: "bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-950/30 dark:border-indigo-800 dark:text-indigo-300",
+  },
+  daily_mood: {
+    coachMessage: "Hey there! How are you feeling today? Your mood helps me understand how to support you better.",
+    followUpSuccess: "Thanks for sharing! Your emotional state matters just as much as the physical. I'm here for you!",
+    followUpSkip: "That's okay! Feel free to share when you're ready.",
+    icon: Smile,
+    color: "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-300",
+  },
+  daily_energy: {
+    coachMessage: "Quick check-in - how's your energy level right now? This helps me tailor my suggestions for today.",
+    followUpSuccess: "Got it! I'll keep your energy level in mind when suggesting activities.",
+    followUpSkip: "No worries! We can check in later.",
+    icon: Zap,
+    color: "bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-950/30 dark:border-yellow-800 dark:text-yellow-300",
+  },
+  daily_stress: {
+    coachMessage: "One more thing - how's your stress level today? Stress affects everything from sleep to appetite.",
+    followUpSuccess: "I appreciate you sharing. I'll keep this in mind - maybe some light movement or breathing exercises could help!",
+    followUpSkip: "That's fine! Remember, I'm here if you want to talk about it.",
+    icon: Brain,
+    color: "bg-teal-100 border-teal-300 text-teal-700 dark:bg-teal-950/30 dark:border-teal-800 dark:text-teal-300",
+  },
 };
 
 // Animation variants
@@ -94,14 +124,58 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
   const [selectedValue, setSelectedValue] = useState<string | null>(null);
   const [showFollowUp, setShowFollowUp] = useState(false);
   const [isSkipping, setIsSkipping] = useState(false);
+  const [showOtherInput, setShowOtherInput] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const otherInputRef = useRef<HTMLInputElement>(null);
 
-  const conversational = conversationalPrompts[prompt.promptKey] || {
-    coachMessage: prompt.question,
-    followUpSuccess: "Thanks for letting me know!",
-    followUpSkip: "No problem, we can skip this for now.",
-    icon: Activity,
-    color: "bg-gray-100 border-gray-300 text-gray-700",
+  // Reset state when prompt changes (new question)
+  useEffect(() => {
+    setSelectedValue(null);
+    setShowFollowUp(false);
+    setIsSkipping(false);
+    setShowOtherInput(false);
+    setOtherText("");
+  }, [prompt.promptKey]);
+
+  // Focus the input when "Other" is selected
+  useEffect(() => {
+    if (showOtherInput && otherInputRef.current) {
+      otherInputRef.current.focus();
+    }
+  }, [showOtherInput]);
+
+  // Get conversational config, handling dynamic daily prompt keys (e.g., daily_sleep_2025-12-28)
+  const getConversationalConfig = () => {
+    // First check for exact match
+    if (conversationalPrompts[prompt.promptKey]) {
+      return conversationalPrompts[prompt.promptKey];
+    }
+
+    // Check for daily prompt patterns (remove date suffix)
+    if (prompt.promptKey.startsWith("daily_sleep_")) {
+      return conversationalPrompts.daily_sleep;
+    }
+    if (prompt.promptKey.startsWith("daily_mood_")) {
+      return conversationalPrompts.daily_mood;
+    }
+    if (prompt.promptKey.startsWith("daily_energy_")) {
+      return conversationalPrompts.daily_energy;
+    }
+    if (prompt.promptKey.startsWith("daily_stress_")) {
+      return conversationalPrompts.daily_stress;
+    }
+
+    // Default fallback
+    return {
+      coachMessage: prompt.question,
+      followUpSuccess: "Thanks for letting me know!",
+      followUpSkip: "No problem, we can skip this for now.",
+      icon: Activity,
+      color: "bg-gray-100 border-gray-300 text-gray-700",
+    };
   };
+
+  const conversational = getConversationalConfig();
 
   const Icon = conversational.icon;
 
@@ -135,8 +209,30 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
 
   const handleSelect = (value: string) => {
     setSelectedValue(value);
+
+    // If "other" is selected, show the text input instead of submitting
+    if (value === "other") {
+      setShowOtherInput(true);
+      return;
+    }
+
     setShowFollowUp(true);
     submitMutation.mutate({ value, skipped: false });
+  };
+
+  const handleOtherSubmit = () => {
+    if (!otherText.trim()) return;
+
+    setShowOtherInput(false);
+    setShowFollowUp(true);
+    // Submit with "other:" prefix so backend knows it's a custom value
+    submitMutation.mutate({ value: `other: ${otherText.trim()}`, skipped: false });
+  };
+
+  const handleOtherKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && otherText.trim()) {
+      handleOtherSubmit();
+    }
   };
 
   const handleSkip = () => {
@@ -172,7 +268,7 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
           </ChatBubble>
 
           {/* Options grid */}
-          {!showFollowUp && (
+          {!showFollowUp && !showOtherInput && (
             <motion.div
               variants={containerVariants}
               initial="hidden"
@@ -224,6 +320,52 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
             </motion.div>
           )}
 
+          {/* "Other" text input */}
+          <AnimatePresence>
+            {showOtherInput && !showFollowUp && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-3"
+              >
+                <p className="text-sm text-muted-foreground">
+                  Tell me more - what would you like me to know?
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    ref={otherInputRef}
+                    value={otherText}
+                    onChange={(e) => setOtherText(e.target.value)}
+                    onKeyDown={handleOtherKeyPress}
+                    placeholder="Type your answer..."
+                    className="flex-1"
+                    disabled={submitMutation.isPending}
+                  />
+                  <Button
+                    size="icon"
+                    onClick={handleOtherSubmit}
+                    disabled={!otherText.trim() || submitMutation.isPending}
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowOtherInput(false);
+                    setSelectedValue(null);
+                    setOtherText("");
+                  }}
+                  className="text-muted-foreground"
+                >
+                  Go back to options
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Follow-up message */}
           <AnimatePresence>
             {showFollowUp && (
@@ -244,7 +386,7 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
           </AnimatePresence>
 
           {/* Skip button */}
-          {!showFollowUp && (
+          {!showFollowUp && !showOtherInput && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
