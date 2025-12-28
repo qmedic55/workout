@@ -35,6 +35,7 @@ interface MilestonesResponse {
   milestones: Milestone[];
   unseenCount: number;
   nextMilestone: { key: string; requiredAction: string } | null;
+  firstWeekExpired?: boolean;
 }
 
 interface FirstWeekReport {
@@ -273,6 +274,9 @@ export function MilestoneProgress() {
   });
 
   if (!milestonesData) return null;
+
+  // Hide after first week expires (7+ days since signup)
+  if (milestonesData.firstWeekExpired) return null;
 
   const achieved = milestonesData.milestones.filter((m) => m.achieved).length;
   const total = milestonesData.milestones.length;

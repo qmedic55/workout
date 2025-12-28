@@ -604,8 +604,17 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   // Get all milestones for the user
   app.get("/api/milestones", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const milestones = await storage.getUserMilestones(getUserId(req));
+      const userId = getUserId(req);
+      const milestones = await storage.getUserMilestones(userId);
       const unseenMilestones = milestones.filter(m => !m.seenAt);
+
+      // Check how long the user has been active (days since onboarding)
+      const assessment = await storage.getOnboardingAssessment(userId);
+      const createdAt = assessment?.createdAt ? new Date(assessment.createdAt) : new Date();
+      const daysSinceSignup = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+
+      // Hide "First Week Journey" after 7 days have passed
+      const firstWeekExpired = daysSinceSignup > 7;
 
       // Define all possible milestone keys with their requirements
       const allMilestoneKeys = [
@@ -637,6 +646,7 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         milestones: milestoneStatus,
         unseenCount: unseenMilestones.length,
         nextMilestone,
+        firstWeekExpired,
       });
     } catch (error) {
       console.error("Error fetching milestones:", error);
