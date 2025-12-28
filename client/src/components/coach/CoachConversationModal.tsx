@@ -189,15 +189,22 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       // Invalidate queries to refresh the next prompt check
       queryClient.invalidateQueries({ queryKey: ["/api/onboarding/next-prompt"] });
       queryClient.invalidateQueries({ queryKey: ["/api/onboarding/progressive"] });
 
-      // Close modal after a brief delay to show the follow-up
+      // Check if there's another prompt waiting
+      const hasNextPrompt = data?.nextPrompt != null;
+
+      // Close modal after showing follow-up, but only if no more prompts
       setTimeout(() => {
-        onClose();
-      }, 2000);
+        if (!hasNextPrompt) {
+          onClose();
+        }
+        // If there's a next prompt, the query invalidation will update the prompt prop
+        // and the useEffect will reset the state for the new question
+      }, hasNextPrompt ? 1500 : 2000);
     },
     onError: () => {
       // Still close modal on error after showing follow-up

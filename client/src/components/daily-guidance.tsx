@@ -165,25 +165,22 @@ export function DailyGuidance() {
     staleTime: 30 * 1000, // Check every 30 seconds for more responsive prompts
   });
 
-  // Show prompt modal automatically when there's a new prompt we haven't dismissed
+  // Show prompt modal automatically when there's a prompt available
   useEffect(() => {
-    if (nextPrompt && nextPrompt.promptKey !== dismissedPromptKey) {
-      // Small delay to let the page load first
-      const timer = setTimeout(() => setShowPromptModal(true), 1500);
+    if (nextPrompt && !showPromptModal) {
+      // Small delay to let the page load first, or no delay if transitioning between prompts
+      const timer = setTimeout(() => setShowPromptModal(true), dismissedPromptKey ? 100 : 1500);
       return () => clearTimeout(timer);
     }
-  }, [nextPrompt?.promptKey, dismissedPromptKey]);
+  }, [nextPrompt?.promptKey, showPromptModal, dismissedPromptKey]);
 
-  // Handle modal close - track dismissed prompt and refetch
+  // Handle modal close - only called when there are no more prompts
   const handlePromptModalClose = () => {
+    // Track that user has seen prompts in this session
     if (nextPrompt) {
       setDismissedPromptKey(nextPrompt.promptKey);
     }
     setShowPromptModal(false);
-    // Refetch to get next prompt after a brief delay
-    setTimeout(() => {
-      queryClient.invalidateQueries({ queryKey: ["/api/onboarding/next-prompt"] });
-    }, 500);
   };
 
   const handleStartWorkout = () => {

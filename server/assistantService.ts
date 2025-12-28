@@ -146,11 +146,26 @@ export async function getOrCreateAssistant(): Promise<string> {
  * Get or create a thread for a user
  */
 export async function getOrCreateThread(userId: string): Promise<string> {
+  if (!userId) {
+    throw new Error("userId is required for getOrCreateThread");
+  }
+
   // Check if user already has a thread
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
-  if (user?.assistantThreadId) {
-    return user.assistantThreadId;
+  if (!user) {
+    throw new Error(`User not found: ${userId}`);
+  }
+
+  if (user.assistantThreadId) {
+    // Verify the thread still exists on OpenAI's side
+    try {
+      await openai.beta.threads.retrieve(user.assistantThreadId);
+      return user.assistantThreadId;
+    } catch (e) {
+      // Thread doesn't exist anymore, create a new one
+      console.log(`Thread ${user.assistantThreadId} no longer exists, creating new thread for user ${userId}`);
+    }
   }
 
   // Create new thread
