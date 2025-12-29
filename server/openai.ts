@@ -65,7 +65,7 @@ export async function generateMentorResponse(
     const response = await openai.chat.completions.create({
       model: modelToUse,
       messages,
-      max_tokens: 1000,
+      max_completion_tokens: 1000,
       temperature: 0.7,
     });
 
@@ -85,7 +85,7 @@ export async function generateMentorResponse(
       const response = await openai.chat.completions.create({
         model: modelToUse,
         messages,
-        max_tokens: 1000,
+        max_completion_tokens: 1000,
         temperature: 0.7,
       });
 
@@ -575,7 +575,7 @@ If you cannot identify any food in the image, respond with:
     const response = await openai.chat.completions.create({
       model: modelUsed,
       messages,
-      max_tokens: 1000,
+      max_completion_tokens: 1000,
       temperature: 0.3,
     });
     content = response.choices[0]?.message?.content || "{}";
@@ -589,7 +589,7 @@ If you cannot identify any food in the image, respond with:
       const response = await openai.chat.completions.create({
         model: modelUsed,
         messages,
-        max_tokens: 1000,
+        max_completion_tokens: 1000,
         temperature: 0.3,
       });
       content = response.choices[0]?.message?.content || "{}";
