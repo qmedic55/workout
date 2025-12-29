@@ -1701,9 +1701,18 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         // Include workout recommendation if AI suggested one
         workoutRecommendation,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error in chat:", error);
-      res.status(500).json({ error: "Failed to process message" });
+      console.error("Error details:", error?.message, error?.stack);
+
+      // Check for specific error types to give better feedback
+      if (error?.message?.includes("OPENAI_API_KEY")) {
+        res.status(500).json({ error: "AI service not configured. Please contact support." });
+      } else if (error?.code === "insufficient_quota" || error?.message?.includes("quota")) {
+        res.status(500).json({ error: "AI service temporarily unavailable. Please try again later." });
+      } else {
+        res.status(500).json({ error: "Failed to process message. Please try again." });
+      }
     }
   });
 
