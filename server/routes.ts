@@ -1581,7 +1581,8 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
       // Get user's health notes for context
       const healthNotes = await storage.getRecentHealthNotes(userId, 14);
 
-      const messageHistory = await storage.getChatMessages(userId, 20);
+      // Get more history since token management will condense if needed
+      const messageHistory = await storage.getChatMessages(userId, 50);
 
       // Get real-time daily progress summary for the AI
       const dailyProgressSummary = await getDailyProgressSummary(userId);

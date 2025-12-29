@@ -3,6 +3,150 @@ import type { UserProfile, OnboardingAssessment } from "@shared/schema";
 import { buildMentorSystemPrompt, type MentorPromptContext } from "./prompts/mentor-system-prompt";
 import { AI_MODEL_PRIMARY, AI_MODEL_FALLBACK, AI_MODEL_VISION, AI_MODEL_VISION_FALLBACK, AI_MODEL_LIGHT } from "./aiModels";
 
+// ============================================
+// TOKEN MANAGEMENT UTILITIES
+// ============================================
+
+// Model token limits (context window sizes)
+const MODEL_TOKEN_LIMITS: Record<string, number> = {
+  "gpt-5.2": 128000,
+  "gpt-4o": 128000,
+  "gpt-4o-mini": 128000,
+  "gpt-4-turbo": 128000,
+  "gpt-4": 8192,
+  "gpt-3.5-turbo": 16385,
+};
+
+// Default limit if model not found
+const DEFAULT_TOKEN_LIMIT = 128000;
+
+// Reserve tokens for the response
+const RESPONSE_TOKEN_RESERVE = 2000;
+
+// Target maximum for conversation history (leave room for system prompt + response)
+const MAX_HISTORY_TOKENS = 20000;
+
+/**
+ * Estimate token count for a string.
+ * Uses a character-based approximation: ~4 characters per token on average for English text.
+ * This is a rough estimate - OpenAI's tiktoken would be more accurate but adds dependency.
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  // Average ~4 characters per token, but be slightly conservative (3.5)
+  return Math.ceil(text.length / 3.5);
+}
+
+/**
+ * Estimate total tokens for an array of messages.
+ */
+export function estimateMessagesTokens(messages: Array<{ role: string; content: string }>): number {
+  let total = 0;
+  for (const msg of messages) {
+    // Add ~4 tokens overhead per message for role and formatting
+    total += 4 + estimateTokens(msg.content);
+  }
+  return total;
+}
+
+/**
+ * Get the token limit for a specific model.
+ */
+export function getModelTokenLimit(model: string): number {
+  return MODEL_TOKEN_LIMITS[model] || DEFAULT_TOKEN_LIMIT;
+}
+
+/**
+ * Condense older messages in the conversation history by summarizing them.
+ * Keeps recent messages intact and summarizes older ones to save tokens.
+ *
+ * @param conversationHistory - Full conversation history
+ * @param systemPromptTokens - Estimated tokens in the system prompt
+ * @param currentMessageTokens - Tokens in the current user message
+ * @param model - The model being used (to check limits)
+ * @returns Condensed conversation history
+ */
+export async function condenseConversationIfNeeded(
+  conversationHistory: Array<{ role: "user" | "assistant"; content: string }>,
+  systemPromptTokens: number,
+  currentMessageTokens: number,
+  model: string = AI_MODEL_PRIMARY
+): Promise<Array<{ role: "user" | "assistant"; content: string }>> {
+  const modelLimit = getModelTokenLimit(model);
+  const historyTokens = estimateMessagesTokens(conversationHistory);
+  const totalEstimated = systemPromptTokens + historyTokens + currentMessageTokens + RESPONSE_TOKEN_RESERVE;
+
+  console.log(`[Token Management] System: ${systemPromptTokens}, History: ${historyTokens}, Current: ${currentMessageTokens}, Total: ${totalEstimated}, Limit: ${modelLimit}`);
+
+  // If we're well under the limit, no condensing needed
+  // Use MAX_HISTORY_TOKENS as the trigger point for condensing
+  if (historyTokens <= MAX_HISTORY_TOKENS && totalEstimated < modelLimit * 0.7) {
+    console.log("[Token Management] No condensing needed");
+    return conversationHistory;
+  }
+
+  console.log("[Token Management] Condensing conversation history...");
+
+  // Strategy: Keep the last 6 messages intact, summarize older messages
+  const KEEP_RECENT = 6;
+
+  if (conversationHistory.length <= KEEP_RECENT) {
+    // Not enough messages to condense, just return as-is
+    return conversationHistory;
+  }
+
+  const recentMessages = conversationHistory.slice(-KEEP_RECENT);
+  const olderMessages = conversationHistory.slice(0, -KEEP_RECENT);
+
+  // Summarize older messages
+  const summaryPrompt = `Summarize this conversation history concisely, preserving key information the AI coach needs to remember:
+- Important user context (goals, preferences, concerns mentioned)
+- Key decisions or recommendations made
+- Any commitments or follow-ups mentioned
+- Important health/fitness data discussed
+
+Keep the summary under 500 words. Focus on what's needed for continuity.
+
+CONVERSATION TO SUMMARIZE:
+${olderMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n")}`;
+
+  try {
+    const summaryResponse = await openai.chat.completions.create({
+      model: AI_MODEL_LIGHT,
+      messages: [
+        { role: "system", content: "You are a conversation summarizer. Create concise summaries that preserve context." },
+        { role: "user", content: summaryPrompt }
+      ],
+      max_completion_tokens: 800,
+      temperature: 0.3,
+    });
+
+    const summary = summaryResponse.choices[0]?.message?.content || "";
+
+    if (summary) {
+      // Create a condensed history with the summary as context
+      const condensedHistory: Array<{ role: "user" | "assistant"; content: string }> = [
+        {
+          role: "assistant",
+          content: `[Earlier conversation summary: ${summary}]`
+        },
+        ...recentMessages
+      ];
+
+      const newTokens = estimateMessagesTokens(condensedHistory);
+      console.log(`[Token Management] Condensed from ${historyTokens} to ${newTokens} tokens (${olderMessages.length} messages summarized)`);
+
+      return condensedHistory;
+    }
+  } catch (error) {
+    console.error("[Token Management] Failed to summarize, falling back to truncation:", error);
+  }
+
+  // Fallback: just keep recent messages if summarization fails
+  console.log("[Token Management] Fallback: keeping only recent messages");
+  return recentMessages;
+}
+
 // Lazy-initialized OpenAI client - doesn't throw at module load time
 let openaiInstance: OpenAI | null = null;
 
@@ -40,7 +184,11 @@ export async function generateMentorResponse(
 ): Promise<MentorResponseResult> {
   const systemPrompt = buildMentorSystemPrompt(context);
 
-  // Log conversation history lengths for debugging long response issues
+  // Estimate tokens for system prompt and current message
+  const systemPromptTokens = estimateTokens(systemPrompt);
+  const currentMessageTokens = estimateTokens(userMessage);
+
+  // Log conversation history lengths for debugging
   const historyStats = conversationHistory.slice(-10).map((msg) => ({
     role: msg.role,
     length: msg.content.length,
@@ -48,10 +196,19 @@ export async function generateMentorResponse(
   }));
   console.log("[AI Debug] User:", context.profile?.firstName, "Message:", userMessage.slice(0, 100));
   console.log("[AI Debug] History:", JSON.stringify(historyStats));
+  console.log("[AI Debug] System prompt tokens:", systemPromptTokens);
+
+  // Condense conversation history if needed to stay within token limits
+  const processedHistory = await condenseConversationIfNeeded(
+    conversationHistory,
+    systemPromptTokens,
+    currentMessageTokens,
+    AI_MODEL_PRIMARY
+  );
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
-    ...conversationHistory.slice(-10).map((msg) => ({
+    ...processedHistory.map((msg) => ({
       role: msg.role as "user" | "assistant",
       content: msg.content,
     })),
