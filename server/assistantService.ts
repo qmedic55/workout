@@ -150,6 +150,8 @@ export async function getOrCreateThread(userId: string): Promise<string> {
     throw new Error("userId is required for getOrCreateThread");
   }
 
+  console.log(`[Thread] Getting or creating thread for user ${userId}`);
+
   // Check if user already has a thread
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
@@ -161,22 +163,28 @@ export async function getOrCreateThread(userId: string): Promise<string> {
     // Verify the thread still exists on OpenAI's side
     try {
       await openai.beta.threads.retrieve(user.assistantThreadId);
+      console.log(`[Thread] Using existing thread ${user.assistantThreadId} for user ${userId}`);
       return user.assistantThreadId;
     } catch (e) {
       // Thread doesn't exist anymore, create a new one
-      console.log(`Thread ${user.assistantThreadId} no longer exists, creating new thread for user ${userId}`);
+      console.log(`[Thread] Thread ${user.assistantThreadId} no longer exists, creating new thread for user ${userId}`);
     }
   }
 
   // Create new thread
+  console.log(`[Thread] Creating new thread for user ${userId}`);
   const thread = await openai.beta.threads.create();
+
+  if (!thread || !thread.id) {
+    throw new Error(`Failed to create thread for user ${userId}: Invalid response from OpenAI`);
+  }
 
   // Save thread ID to user
   await db.update(users)
     .set({ assistantThreadId: thread.id })
     .where(eq(users.id, userId));
 
-  console.log(`Created new thread ${thread.id} for user ${userId}`);
+  console.log(`[Thread] Created new thread ${thread.id} for user ${userId}`);
   return thread.id;
 }
 
@@ -188,8 +196,20 @@ export async function sendMessage(
   message: string,
   waitForResponse: boolean = true
 ): Promise<string> {
+  console.log(`[Assistant] sendMessage called for user ${userId}`);
+
   const assistantId = await getOrCreateAssistant();
   const threadId = await getOrCreateThread(userId);
+
+  // Validate we have valid IDs before proceeding
+  if (!assistantId) {
+    throw new Error("Failed to get assistant ID");
+  }
+  if (!threadId) {
+    throw new Error(`Failed to get thread ID for user ${userId}`);
+  }
+
+  console.log(`[Assistant] Using assistant ${assistantId}, thread ${threadId}`);
 
   // Add the message to the thread
   await openai.beta.threads.messages.create(threadId, {
