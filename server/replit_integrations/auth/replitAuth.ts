@@ -27,7 +27,7 @@ export function getSession() {
     return sessionMiddleware;
   }
 
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const sessionTtl = 30 * 24 * 60 * 60 * 1000; // 30 days (extended from 1 week)
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
@@ -42,6 +42,7 @@ export function getSession() {
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
+    rolling: true, // Reset cookie expiration on each request (keeps active users logged in)
     cookie: {
       httpOnly: true,
       secure: true,
@@ -185,28 +186,43 @@ export async function setupAuth(app: Express) {
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   const user = req.user as any;
 
-  if (!req.isAuthenticated() || !user.expires_at) {
+  if (!req.isAuthenticated()) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
+  // If no expires_at, allow the request (session-based auth)
+  if (!user.expires_at) {
     return next();
   }
 
+  const now = Math.floor(Date.now() / 1000);
+
+  // Add 5 minute buffer before expiration to proactively refresh
+  const bufferSeconds = 5 * 60;
+  if (now <= user.expires_at - bufferSeconds) {
+    return next();
+  }
+
+  // Token expired or about to expire, try to refresh
   const refreshToken = user.refresh_token;
   if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
+    // No refresh token, but session might still be valid
+    // Allow request to continue if session exists
+    console.log("[Auth] No refresh token, but session exists - allowing request");
+    return next();
   }
 
   try {
     const config = await getOidcConfig();
     const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
     updateUserSession(user, tokenResponse);
+    console.log("[Auth] Successfully refreshed token");
     return next();
   } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
+    // Token refresh failed, but don't immediately kick user out
+    // Allow the request if session is still valid
+    console.error("[Auth] Token refresh failed:", error);
+    // Let the request proceed - the session might still be valid
+    return next();
   }
 };

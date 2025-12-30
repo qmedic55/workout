@@ -197,20 +197,20 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
       // Check if there's another prompt waiting
       const hasNextPrompt = data?.nextPrompt != null;
 
-      // Close modal after showing follow-up, but only if no more prompts
+      // Reduced delays for snappier UX
       setTimeout(() => {
         if (!hasNextPrompt) {
           onClose();
         }
         // If there's a next prompt, the query invalidation will update the prompt prop
         // and the useEffect will reset the state for the new question
-      }, hasNextPrompt ? 1500 : 2000);
+      }, hasNextPrompt ? 800 : 1200);
     },
     onError: () => {
       // Still close modal on error after showing follow-up
       setTimeout(() => {
         onClose();
-      }, 2000);
+      }, 1200);
     },
   });
 
@@ -268,7 +268,7 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
           <ChatBubble animate={false}>
             <TypewriterText
               text={conversational.coachMessage}
-              speed={20}
+              speed={10}
               showCursor={false}
               className="text-sm"
             />
@@ -379,9 +379,9 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.15 }}
               >
-                <ChatBubble delay={0.3}>
+                <ChatBubble delay={0.1}>
                   <span className="text-sm">
                     {isSkipping
                       ? conversational.followUpSkip
