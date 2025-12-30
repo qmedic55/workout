@@ -1347,14 +1347,39 @@ export class DatabaseStorage implements IStorage {
     // After all onboarding prompts are done, check for proactive daily check-ins
     // These prompts ask about today's biofeedback if not already collected
     const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const currentHour = now.getHours();
     const todayLog = await this.getDailyLog(userId, today);
 
-    // Define proactive daily prompts based on missing data
-    const proactiveDailyPrompts = [
+    // Get recent data for pattern-based prompts
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
+    const recentLogs = await this.getDailyLogs(userId, sevenDaysAgoStr, today);
+    const todayFoodEntries = await this.getFoodEntries(userId, today);
+    const todayExercises = await this.getExerciseLogs(userId, today);
+    const profile = await this.getProfile(userId);
+
+    // Calculate streaks and patterns
+    const consecutiveDaysLogged = recentLogs.filter((l: DailyLog) => l.caloriesConsumed && l.caloriesConsumed > 0).length;
+    const logsWithSleep = recentLogs.filter((l: DailyLog) => l.sleepHours);
+    const avgSleepLast7 = logsWithSleep.length > 0
+      ? logsWithSleep.reduce((sum: number, l: DailyLog) => sum + (l.sleepHours || 0), 0) / logsWithSleep.length
+      : 0;
+    const logsWithStress = recentLogs.filter((l: DailyLog) => l.stressLevel);
+    const avgStressLast7 = logsWithStress.length > 0
+      ? logsWithStress.reduce((sum: number, l: DailyLog) => sum + (l.stressLevel || 0), 0) / logsWithStress.length
+      : 0;
+    const workoutsThisWeek = recentLogs.filter((l: DailyLog) => l.workoutCompleted).length;
+    const proteinToday = todayLog?.proteinGrams || 0;
+    const targetProtein = profile?.proteinGrams || 150;
+
+    // Morning prompts (5am - 11am)
+    const morningPrompts = [
       {
         promptKey: `daily_sleep_${today}`,
-        check: () => !todayLog?.sleepHours,
-        question: "How did you sleep last night?",
+        check: () => currentHour >= 5 && currentHour < 11 && !todayLog?.sleepHours,
+        question: "Good morning! How did you sleep last night?",
         options: [
           { value: "less_than_5", label: "Less than 5 hours" },
           { value: "5_to_6", label: "5-6 hours" },
@@ -1365,22 +1390,37 @@ export class DatabaseStorage implements IStorage {
         skipLabel: "I'll log this later",
       },
       {
-        promptKey: `daily_mood_${today}`,
-        check: () => !todayLog?.moodRating,
-        question: "How are you feeling today?",
+        promptKey: `morning_intention_${today}`,
+        check: () => currentHour >= 6 && currentHour < 10 && !todayLog?.workoutCompleted,
+        question: "What's your plan for movement today?",
         options: [
-          { value: "1", label: "Struggling" },
-          { value: "3", label: "Not great" },
-          { value: "5", label: "Okay" },
-          { value: "7", label: "Good" },
-          { value: "9", label: "Fantastic!" },
+          { value: "workout_planned", label: "Full workout planned" },
+          { value: "light_movement", label: "Light movement/walk" },
+          { value: "rest_day", label: "Intentional rest day" },
+          { value: "undecided", label: "Haven't decided yet" },
         ],
-        skipLabel: "Skip for now",
+        skipLabel: "I'll think about it",
       },
       {
+        promptKey: `breakfast_check_${today}`,
+        check: () => currentHour >= 7 && currentHour < 11 && todayFoodEntries.filter(f => f.mealType === "breakfast").length === 0,
+        question: "Have you had breakfast yet?",
+        options: [
+          { value: "had_breakfast", label: "Yes, I've eaten" },
+          { value: "about_to", label: "About to eat" },
+          { value: "skipping", label: "Skipping today" },
+          { value: "intermittent_fasting", label: "Fasting window" },
+        ],
+        skipLabel: "Not now",
+      },
+    ];
+
+    // Midday prompts (11am - 3pm)
+    const middayPrompts = [
+      {
         promptKey: `daily_energy_${today}`,
-        check: () => !todayLog?.energyLevel,
-        question: "How's your energy level right now?",
+        check: () => currentHour >= 11 && currentHour < 15 && !todayLog?.energyLevel,
+        question: "How's your energy level this afternoon?",
         options: [
           { value: "1", label: "Very low" },
           { value: "3", label: "Low" },
@@ -1391,9 +1431,78 @@ export class DatabaseStorage implements IStorage {
         skipLabel: "Maybe later",
       },
       {
+        promptKey: `lunch_check_${today}`,
+        check: () => currentHour >= 12 && currentHour < 15 && todayFoodEntries.filter(f => f.mealType === "lunch").length === 0,
+        question: "Have you had lunch yet? Keeping energy up matters!",
+        options: [
+          { value: "had_lunch", label: "Yes, already ate" },
+          { value: "eating_now", label: "Eating now" },
+          { value: "soon", label: "Eating soon" },
+          { value: "late_lunch", label: "Having a late lunch" },
+        ],
+        skipLabel: "Skip",
+      },
+      {
+        promptKey: `hydration_check_${today}`,
+        check: () => currentHour >= 12 && currentHour < 16 && !todayLog?.waterLiters,
+        question: "Quick hydration check - how's your water intake today?",
+        options: [
+          { value: "great", label: "Drinking plenty" },
+          { value: "okay", label: "Could be better" },
+          { value: "forgot", label: "Barely any 😅" },
+          { value: "tracking", label: "I track elsewhere" },
+        ],
+        skipLabel: "Not now",
+      },
+    ];
+
+    // Afternoon prompts (3pm - 6pm)
+    const afternoonPrompts = [
+      {
+        promptKey: `workout_check_${today}`,
+        check: () => currentHour >= 15 && currentHour < 18 && !todayLog?.workoutCompleted && todayExercises.length === 0,
+        question: "How's the workout situation today?",
+        options: [
+          { value: "done", label: "Already crushed it! 💪" },
+          { value: "later", label: "Working out later" },
+          { value: "rest_day", label: "Active rest day" },
+          { value: "skipping", label: "Taking today off" },
+        ],
+        skipLabel: "Ask me later",
+      },
+      {
+        promptKey: `afternoon_energy_${today}`,
+        check: () => currentHour >= 14 && currentHour < 17 && todayLog?.energyLevel && (todayLog.energyLevel || 0) < 5,
+        question: "Noticing lower energy earlier - how are you feeling now?",
+        options: [
+          { value: "better", label: "Much better now" },
+          { value: "same", label: "About the same" },
+          { value: "worse", label: "More tired" },
+          { value: "need_break", label: "Need a break" },
+        ],
+        skipLabel: "I'm fine",
+      },
+    ];
+
+    // Evening prompts (6pm - 10pm)
+    const eveningPrompts = [
+      {
+        promptKey: `daily_mood_${today}`,
+        check: () => currentHour >= 18 && currentHour < 22 && !todayLog?.moodRating,
+        question: "How was your day overall?",
+        options: [
+          { value: "1", label: "Tough day" },
+          { value: "3", label: "Not great" },
+          { value: "5", label: "Okay" },
+          { value: "7", label: "Good day" },
+          { value: "9", label: "Great day!" },
+        ],
+        skipLabel: "Skip for now",
+      },
+      {
         promptKey: `daily_stress_${today}`,
-        check: () => !todayLog?.stressLevel,
-        question: "How's your stress level today?",
+        check: () => currentHour >= 18 && currentHour < 22 && !todayLog?.stressLevel,
+        question: "How's your stress level this evening?",
         options: [
           { value: "1", label: "Very calm" },
           { value: "3", label: "Relaxed" },
@@ -1403,10 +1512,124 @@ export class DatabaseStorage implements IStorage {
         ],
         skipLabel: "I'd rather not say",
       },
+      {
+        promptKey: `dinner_check_${today}`,
+        check: () => currentHour >= 18 && currentHour < 21 && todayFoodEntries.filter(f => f.mealType === "dinner").length === 0,
+        question: "Have you had dinner yet?",
+        options: [
+          { value: "had_dinner", label: "Yes, finished eating" },
+          { value: "eating_now", label: "Eating now" },
+          { value: "soon", label: "About to eat" },
+          { value: "light_night", label: "Light/no dinner tonight" },
+        ],
+        skipLabel: "Skip",
+      },
+      {
+        promptKey: `protein_check_${today}`,
+        check: () => currentHour >= 18 && currentHour < 21 && proteinToday < targetProtein * 0.7,
+        question: `You're at ${proteinToday}g protein today. Planning to hit your target?`,
+        options: [
+          { value: "will_hit", label: "Yes, eating more soon" },
+          { value: "close_enough", label: "Close enough today" },
+          { value: "off_day", label: "It's an off day" },
+          { value: "help_needed", label: "Need snack ideas" },
+        ],
+        skipLabel: "I'm good",
+      },
+    ];
+
+    // Celebration prompts (based on achievements)
+    const celebrationPrompts = [
+      {
+        promptKey: `streak_celebration_3_${today}`,
+        check: () => consecutiveDaysLogged === 3,
+        question: "🎉 3 days in a row logging! How are you feeling about your consistency?",
+        options: [
+          { value: "proud", label: "Feeling great about it!" },
+          { value: "getting_easier", label: "Getting easier" },
+          { value: "challenging", label: "Still challenging" },
+          { value: "just_started", label: "Just getting started" },
+        ],
+        skipLabel: "Thanks!",
+      },
+      {
+        promptKey: `streak_celebration_7_${today}`,
+        check: () => consecutiveDaysLogged === 7,
+        question: "🔥 A FULL WEEK of consistency! What's been your secret?",
+        options: [
+          { value: "routine", label: "Building a routine" },
+          { value: "app_helps", label: "This app makes it easy" },
+          { value: "motivation", label: "Staying motivated" },
+          { value: "just_showing_up", label: "Just showing up daily" },
+        ],
+        skipLabel: "Keep it going!",
+      },
+      {
+        promptKey: `workout_streak_${today}`,
+        check: () => workoutsThisWeek >= 3 && currentHour >= 12,
+        question: `💪 ${workoutsThisWeek} workouts this week already! How's your body feeling?`,
+        options: [
+          { value: "strong", label: "Strong and capable" },
+          { value: "tired_good", label: "Tired but good" },
+          { value: "need_rest", label: "Might need rest soon" },
+          { value: "could_do_more", label: "Ready for more!" },
+        ],
+        skipLabel: "Thanks!",
+      },
+    ];
+
+    // Pattern-based concern prompts
+    const patternPrompts = [
+      {
+        promptKey: `low_sleep_pattern_${today}`,
+        check: () => avgSleepLast7 > 0 && avgSleepLast7 < 6 && currentHour >= 18,
+        question: "I've noticed your sleep has averaged under 6 hours lately. Everything okay?",
+        options: [
+          { value: "stressed", label: "Been stressed/busy" },
+          { value: "schedule", label: "Schedule issues" },
+          { value: "sleep_trouble", label: "Having trouble sleeping" },
+          { value: "improving", label: "Working on improving" },
+        ],
+        skipLabel: "I'm aware",
+      },
+      {
+        promptKey: `high_stress_pattern_${today}`,
+        check: () => avgStressLast7 > 6 && currentHour >= 15,
+        question: "Your stress has been elevated this week. How can I help?",
+        options: [
+          { value: "workout_ideas", label: "Stress-relief workout" },
+          { value: "breathing", label: "Breathing exercises" },
+          { value: "talk", label: "Just need to vent" },
+          { value: "handling_it", label: "I'm handling it" },
+        ],
+        skipLabel: "I'm okay",
+      },
+      {
+        promptKey: `low_activity_check_${today}`,
+        check: () => workoutsThisWeek === 0 && recentLogs.length >= 3 && currentHour >= 14,
+        question: "Haven't logged a workout this week - is that intentional?",
+        options: [
+          { value: "recovery_week", label: "Recovery/deload week" },
+          { value: "busy", label: "Been too busy" },
+          { value: "injured", label: "Dealing with injury" },
+          { value: "need_motivation", label: "Need motivation" },
+        ],
+        skipLabel: "It's fine",
+      },
+    ];
+
+    // Combine all prompts in priority order
+    const allProactivePrompts = [
+      ...celebrationPrompts,      // Celebrations first - positive reinforcement
+      ...patternPrompts,          // Address concerns early
+      ...morningPrompts,          // Time-appropriate prompts
+      ...middayPrompts,
+      ...afternoonPrompts,
+      ...eveningPrompts,
     ];
 
     // Find the first proactive prompt that's needed and not already answered today
-    for (const prompt of proactiveDailyPrompts) {
+    for (const prompt of allProactivePrompts) {
       if (prompt.check() && !answeredKeys.includes(prompt.promptKey)) {
         return {
           promptKey: prompt.promptKey,

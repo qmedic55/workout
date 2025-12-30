@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { Check, Dumbbell, Heart, Moon, Utensils, Activity, Stethoscope, Send, Smile, Zap, Brain, BedDouble } from "lucide-react";
+import { Check, Dumbbell, Heart, Moon, Utensils, Activity, Stethoscope, Send, Smile, Zap, Brain, BedDouble, Coffee, Droplets, Sun, Trophy, AlertCircle, Target } from "lucide-react";
 
 import { CoachAvatar } from "@/components/onboarding/CoachAvatar";
 import { TypewriterText } from "@/components/onboarding/TypewriterText";
@@ -104,6 +104,110 @@ const conversationalPrompts: Record<string, {
     icon: Brain,
     color: "bg-teal-100 border-teal-300 text-teal-700 dark:bg-teal-950/30 dark:border-teal-800 dark:text-teal-300",
   },
+  // Morning prompts
+  morning_intention: {
+    coachMessage: "Let's set an intention for today. What's your plan for movement?",
+    followUpSuccess: "Love it! Having a plan makes it so much more likely to happen. I'll check in later!",
+    followUpSkip: "No worries - you can always decide later. Just showing up is what matters!",
+    icon: Sun,
+    color: "bg-orange-100 border-orange-300 text-orange-700 dark:bg-orange-950/30 dark:border-orange-800 dark:text-orange-300",
+  },
+  breakfast_check: {
+    coachMessage: "Just checking in - have you fueled up with breakfast yet?",
+    followUpSuccess: "Great! Starting the day right makes everything easier.",
+    followUpSkip: "No problem! Everyone's morning routine is different.",
+    icon: Coffee,
+    color: "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-300",
+  },
+  // Midday prompts
+  lunch_check: {
+    coachMessage: "Midday check-in! Have you had lunch yet?",
+    followUpSuccess: "Good to hear! Keeping your energy steady through the day helps everything.",
+    followUpSkip: "Okay! Just remember, consistent meals help maintain energy and focus.",
+    icon: Utensils,
+    color: "bg-green-100 border-green-300 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300",
+  },
+  hydration_check: {
+    coachMessage: "Quick hydration check! How's your water intake today?",
+    followUpSuccess: "Hydration is so underrated! It affects energy, focus, and even hunger signals.",
+    followUpSkip: "No problem! Just a gentle reminder to sip throughout the day.",
+    icon: Droplets,
+    color: "bg-cyan-100 border-cyan-300 text-cyan-700 dark:bg-cyan-950/30 dark:border-cyan-800 dark:text-cyan-300",
+  },
+  // Afternoon prompts
+  workout_check: {
+    coachMessage: "Afternoon check-in - how's the workout situation today?",
+    followUpSuccess: "Awesome! Whether you're crushing it or resting, you're on track!",
+    followUpSkip: "All good! Rest days are just as important as workout days.",
+    icon: Dumbbell,
+    color: "bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-300",
+  },
+  afternoon_energy: {
+    coachMessage: "I noticed your energy was lower earlier. How are you feeling now?",
+    followUpSuccess: "Thanks for the update! I'll adjust my suggestions based on how you're feeling.",
+    followUpSkip: "No worries! Energy ebbs and flows - that's totally normal.",
+    icon: Zap,
+    color: "bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-950/30 dark:border-yellow-800 dark:text-yellow-300",
+  },
+  // Evening prompts
+  dinner_check: {
+    coachMessage: "Evening check-in! Have you had dinner yet?",
+    followUpSuccess: "Perfect! Finishing meals at a reasonable time helps with sleep quality too.",
+    followUpSkip: "Okay! Just making sure you're taking care of yourself.",
+    icon: Utensils,
+    color: "bg-green-100 border-green-300 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300",
+  },
+  protein_check: {
+    coachMessage: "I noticed you're a bit behind on protein today. Any plans to catch up?",
+    followUpSuccess: "Great! Protein is so important for recovery and maintaining muscle.",
+    followUpSkip: "No problem! Some days are harder than others. We'll get it tomorrow!",
+    icon: Target,
+    color: "bg-purple-100 border-purple-300 text-purple-700 dark:bg-purple-950/30 dark:border-purple-800 dark:text-purple-300",
+  },
+  // Celebration prompts
+  streak_celebration_3: {
+    coachMessage: "🎉 3 days in a row! You're building a real habit here!",
+    followUpSuccess: "That's the spirit! Consistency beats perfection every time.",
+    followUpSkip: "Keep that momentum going! You're doing great!",
+    icon: Trophy,
+    color: "bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-950/30 dark:border-yellow-800 dark:text-yellow-300",
+  },
+  streak_celebration_7: {
+    coachMessage: "🔥 ONE FULL WEEK! This is a huge milestone!",
+    followUpSuccess: "I'm so proud of you! A week of consistency is no small feat.",
+    followUpSkip: "You're crushing it! The first week is the hardest.",
+    icon: Trophy,
+    color: "bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-950/30 dark:border-yellow-800 dark:text-yellow-300",
+  },
+  workout_streak: {
+    coachMessage: "💪 Multiple workouts this week! Your consistency is paying off!",
+    followUpSuccess: "I love hearing how your body feels. This helps me tailor your program!",
+    followUpSkip: "Keep listening to your body - you know it best!",
+    icon: Dumbbell,
+    color: "bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-300",
+  },
+  // Pattern-based concern prompts
+  low_sleep_pattern: {
+    coachMessage: "I've noticed your sleep has been under 6 hours lately. Is everything okay?",
+    followUpSuccess: "Thanks for sharing. Sleep is foundational - let's work on this together.",
+    followUpSkip: "I understand. I'm here whenever you want to talk about it.",
+    icon: BedDouble,
+    color: "bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-950/30 dark:border-indigo-800 dark:text-indigo-300",
+  },
+  high_stress_pattern: {
+    coachMessage: "Your stress levels have been elevated this week. How can I support you?",
+    followUpSuccess: "I'm here for you! Let's focus on what we can control.",
+    followUpSkip: "Remember, I'm always here if you need to talk or want some stress-relief ideas.",
+    icon: AlertCircle,
+    color: "bg-red-100 border-red-300 text-red-700 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300",
+  },
+  low_activity_check: {
+    coachMessage: "I noticed no workouts logged this week. Is that intentional?",
+    followUpSuccess: "Thanks for letting me know! Context helps me support you better.",
+    followUpSkip: "No judgment here - life happens. I'm here when you're ready!",
+    icon: Activity,
+    color: "bg-gray-100 border-gray-300 text-gray-700 dark:bg-gray-950/30 dark:border-gray-800 dark:text-gray-300",
+  },
 };
 
 // Animation variants
@@ -151,18 +255,39 @@ export function CoachConversationModal({ prompt, open, onClose }: CoachConversat
       return conversationalPrompts[prompt.promptKey];
     }
 
-    // Check for daily prompt patterns (remove date suffix)
-    if (prompt.promptKey.startsWith("daily_sleep_")) {
-      return conversationalPrompts.daily_sleep;
-    }
-    if (prompt.promptKey.startsWith("daily_mood_")) {
-      return conversationalPrompts.daily_mood;
-    }
-    if (prompt.promptKey.startsWith("daily_energy_")) {
-      return conversationalPrompts.daily_energy;
-    }
-    if (prompt.promptKey.startsWith("daily_stress_")) {
-      return conversationalPrompts.daily_stress;
+    // Pattern matching for date-suffixed prompts (remove _YYYY-MM-DD suffix)
+    const promptPatterns = [
+      // Daily check-ins
+      { prefix: "daily_sleep_", config: "daily_sleep" },
+      { prefix: "daily_mood_", config: "daily_mood" },
+      { prefix: "daily_energy_", config: "daily_energy" },
+      { prefix: "daily_stress_", config: "daily_stress" },
+      // Morning prompts
+      { prefix: "morning_intention_", config: "morning_intention" },
+      { prefix: "breakfast_check_", config: "breakfast_check" },
+      // Midday prompts
+      { prefix: "lunch_check_", config: "lunch_check" },
+      { prefix: "hydration_check_", config: "hydration_check" },
+      // Afternoon prompts
+      { prefix: "workout_check_", config: "workout_check" },
+      { prefix: "afternoon_energy_", config: "afternoon_energy" },
+      // Evening prompts
+      { prefix: "dinner_check_", config: "dinner_check" },
+      { prefix: "protein_check_", config: "protein_check" },
+      // Celebration prompts
+      { prefix: "streak_celebration_3_", config: "streak_celebration_3" },
+      { prefix: "streak_celebration_7_", config: "streak_celebration_7" },
+      { prefix: "workout_streak_", config: "workout_streak" },
+      // Pattern-based prompts
+      { prefix: "low_sleep_pattern_", config: "low_sleep_pattern" },
+      { prefix: "high_stress_pattern_", config: "high_stress_pattern" },
+      { prefix: "low_activity_check_", config: "low_activity_check" },
+    ];
+
+    for (const pattern of promptPatterns) {
+      if (prompt.promptKey.startsWith(pattern.prefix)) {
+        return conversationalPrompts[pattern.config];
+      }
     }
 
     // Default fallback
