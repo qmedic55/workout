@@ -298,6 +298,12 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
 
+  // ==================== Health Check Endpoint ====================
+  // This endpoint is used by Replit's deployment to verify the app is running
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // ==================== Apple Sign In Routes ====================
 
   // Apple's public keys for JWT verification
