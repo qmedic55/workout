@@ -9,7 +9,6 @@ import { AI_MODEL_PRIMARY, AI_MODEL_FALLBACK, AI_MODEL_VISION, AI_MODEL_VISION_F
 
 // Model token limits (context window sizes)
 const MODEL_TOKEN_LIMITS: Record<string, number> = {
-  "gpt-5.2": 128000,
   "gpt-4o": 128000,
   "gpt-4o-mini": 128000,
   "gpt-4-turbo": 128000,
