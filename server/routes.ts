@@ -1703,23 +1703,14 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
         workoutRecommendation,
       });
     } catch (error: any) {
-      console.error("[Chat Error] Full error:", error);
-      console.error("[Chat Error] Message:", error?.message);
-      console.error("[Chat Error] Code:", error?.code);
-      console.error("[Chat Error] Status:", error?.status);
-      console.error("[Chat Error] Stack:", error?.stack);
+      console.error("Error in chat:", error);
+      console.error("Error details:", error?.message, error?.stack);
 
       // Check for specific error types to give better feedback
       if (error?.message?.includes("OPENAI_API_KEY")) {
         res.status(500).json({ error: "AI service not configured. Please contact support." });
       } else if (error?.code === "insufficient_quota" || error?.message?.includes("quota")) {
         res.status(500).json({ error: "AI service temporarily unavailable. Please try again later." });
-      } else if (error?.message?.includes("model") || error?.code === "model_not_found") {
-        console.error("[Chat Error] Model not found - check aiModels.ts configuration");
-        res.status(500).json({ error: "AI service configuration error. Please contact support." });
-      } else if (error?.status === 401 || error?.code === "invalid_api_key") {
-        console.error("[Chat Error] Invalid API key");
-        res.status(500).json({ error: "AI service authentication error. Please contact support." });
       } else {
         res.status(500).json({ error: "Failed to process message. Please try again." });
       }
