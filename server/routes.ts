@@ -1205,6 +1205,10 @@ Feel free to ask me any questions about your plan, nutrition, training, or anyth
   app.get("/api/chat/messages", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const messages = await storage.getChatMessages(getUserId(req));
+      // Prevent browser caching to ensure fresh messages are always shown
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
